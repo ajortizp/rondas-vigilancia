@@ -1,13 +1,16 @@
 const $=s=>document.querySelector(s);
 const $$=s=>[...document.querySelectorAll(s)];
 
+const params=new URLSearchParams(window.location.search);
+const DEVICE_ZONE=params.get('zona')==='1'?'Zona 1':params.get('zona')==='2'?'Zona 2':null;
+
 let state={
   user:null,
   round:null,
   loc:null,
   scanner:null,
   gps:null,
-  selectedZone:null
+  selectedZone:DEVICE_ZONE
 };
 
 function show(id){
@@ -68,7 +71,10 @@ function syncHomeForActive(){
 async function demoApi(action,p={}){
   let db=demoDb();
   if(action==='login'){
-    if(normalizeRut(p.rut)===normalizeRut(CONFIG.DEMO_RUT) && p.pin===CONFIG.DEMO_PIN)
+    const nr=normalizeRut(p.rut);
+    const body=nr.slice(0,-1);
+    const rutPin=body.slice(-4);
+    if(normalizeRut(p.rut)===normalizeRut(CONFIG.DEMO_RUT) && (p.pin===CONFIG.DEMO_PIN || p.pin===rutPin))
       return {ok:true,user:{rut:p.rut,name:CONFIG.DEMO_NAME}};
     return {ok:false,error:'RUT o PIN incorrecto'};
   }
@@ -117,6 +123,12 @@ $('#btnLogin').onclick=async()=>{
   if(!r.ok) return alert(r.error);
   state.user=r.user;
   $('#userName').textContent=r.user.name;
+  if(DEVICE_ZONE){
+    state.selectedZone=DEVICE_ZONE;
+    $$('.zoneBtn').forEach(x=>x.classList.toggle('selected',x.dataset.zone===DEVICE_ZONE));
+    $('#zoneSelected').textContent='Teléfono configurado: '+DEVICE_ZONE;
+    $$('.zoneBtn').forEach(x=>x.style.display='none');
+  }
   state.gps=await getGps();
   $('#gpsStatus').textContent=state.gps?'Ubicación disponible':'Ubicación no disponible';
   syncHomeForActive();
@@ -414,9 +426,9 @@ $('#btnFinish').onclick=async()=>{
 
   state.round=null;
   state.loc=null;
-  state.selectedZone=null;
-  $$('.zoneBtn').forEach(x=>x.classList.remove('selected'));
-  $('#zoneSelected').textContent='Selecciona una zona';
+  state.selectedZone=DEVICE_ZONE;
+  $$('.zoneBtn').forEach(x=>x.classList.toggle('selected',x.dataset.zone===DEVICE_ZONE));
+  $('#zoneSelected').textContent=DEVICE_ZONE?'Teléfono configurado: '+DEVICE_ZONE:'Selecciona una zona';
   $('#startPhoto').value='';
   $('#endPhoto').value='';
   $('#btnStart').disabled=true;
@@ -425,6 +437,23 @@ $('#btnFinish').onclick=async()=>{
 };
 
 $('#btnDashboard').onclick=()=>show('dashboard');
+
+
+function fmtDuration(start,end){
+  if(!start) return '--:--:--';
+  const a=new Date(start).getTime();
+  const b=end?new Date(end).getTime():Date.now();
+  let sec=Math.max(0,Math.floor((b-a)/1000));
+  const h=Math.floor(sec/3600);
+  sec%=3600;
+  const m=Math.floor(sec/60);
+  const s=sec%60;
+  return [h,m,s].map(x=>String(x).padStart(2,'0')).join(':');
+}
+function fmtTime(v){
+  if(!v) return '—';
+  return new Date(v).toLocaleTimeString('es-CL',{hour:'2-digit',minute:'2-digit'});
+}
 
 async function renderDashboard(){
   let r=await api('dashboard');
@@ -440,7 +469,8 @@ async function renderDashboard(){
   $('#dashRows').innerHTML=rs.slice().reverse().map(x=>
     `<div class="dashrow">
       <b>${x.user?.name||''}</b> · ${x.zone||'Sin zona'} · ${x.status}<br>
-      <small>${new Date(x.start).toLocaleString('es-CL')} · ${(x.visits||[]).length} pisos · ${x.issues||0} novedades</small>
+      <small>Inicio ${fmtTime(x.start)} · Fin ${x.end?fmtTime(x.end):'En curso'} · Duración ${fmtDuration(x.start,x.end)}</small><br>
+      <small>${(x.visits||[]).length} pisos · ${x.issues||0} novedades</small>
     </div>`
   ).join('')||'<p>Sin datos</p>';
 }
