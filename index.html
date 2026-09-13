@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
 <title>Rondas de Vigilancia</title>
 <link rel="manifest" href="manifest.json">
-<link rel="stylesheet" href="styles.css?v=7.1">
+<link rel="stylesheet" href="styles.css?v=7.2">
 <script src="https://unpkg.com/html5-qrcode@2.3.8/html5-qrcode.min.js"></script>
 </head>
 <body>
@@ -171,8 +171,17 @@
   </section>
 </div>
 
-<script src="config.js?v=7.1"></script>
-<script src="sites.js?v=7.1"></script>
-<script src="app.js?v=7.1"></script>
+
+<div id="loadingOverlay" class="loadingOverlay" aria-live="assertive" aria-busy="true">
+  <div class="loadingCard">
+    <div class="spinner"></div>
+    <div id="loadingText" class="loadingText">Procesando...</div>
+    <div class="loadingSub">Espera un momento</div>
+  </div>
+</div>
+
+<script src="config.js?v=7.2"></script>
+<script src="sites.js?v=7.2"></script>
+<script src="app.js?v=7.2"></script>
 </body>
 </html>

@@ -25,6 +25,55 @@ function show(id){
   if(id==='dashboard') renderDashboard();
 }
 
+
+let busyCount=0;
+
+function setLoading(on,text='Procesando...'){
+  const overlay=$('#loadingOverlay');
+  const label=$('#loadingText');
+
+  if(on){
+    busyCount++;
+    if(label) label.textContent=text;
+    if(overlay) overlay.classList.add('show');
+    document.body.classList.add('busy');
+
+    // Deshabilita acciones para evitar dobles toques
+    $$('button').forEach(b=>{
+      if(!b.dataset.prevDisabled){
+        b.dataset.prevDisabled=b.disabled?'1':'0';
+      }
+      b.disabled=true;
+    });
+  }else{
+    busyCount=Math.max(0,busyCount-1);
+    if(busyCount===0){
+      if(overlay) overlay.classList.remove('show');
+      document.body.classList.remove('busy');
+
+      $$('button').forEach(b=>{
+        if(b.dataset.prevDisabled!==undefined){
+          b.disabled=b.dataset.prevDisabled==='1';
+          delete b.dataset.prevDisabled;
+        }
+      });
+
+      // Recalcular botones dependientes del estado
+      try{canStart()}catch(e){}
+    }
+  }
+}
+
+async function withLoading(text,fn){
+  if(document.body.classList.contains('busy')) return;
+  setLoading(true,text);
+  try{
+    return await fn();
+  }finally{
+    setLoading(false);
+  }
+}
+
 function now(){return new Date().toISOString()}
 function normalizeRut(s){return (s||'').replace(/[^0-9kK]/g,'').toUpperCase()}
 
@@ -151,6 +200,7 @@ async function submitReason(reason){
   const gps=await getGps();
 
   if(state.reasonMode==='notRun'){
+    return withLoading('Guardando registro...',async()=>{
     const result=await api('notRun',{
       user:state.user,
       zone:state.selectedZone,
@@ -166,12 +216,14 @@ async function submitReason(reason){
 
     clearActive();
     logoutToLogin('Registro guardado. La ronda quedó como No realizada.');
+    });
     return;
   }
 
   if(state.reasonMode==='interrupt'){
     if(!state.round?.id) return alert('No hay una ronda activa.');
 
+    return withLoading('Interrumpiendo ronda...',async()=>{
     const result=await api('interrupt',{
       id:state.round.id,
       reason,
@@ -184,6 +236,7 @@ async function submitReason(reason){
 
     clearActive();
     logoutToLogin('Ronda interrumpida y registrada correctamente.');
+    });
   }
 }
 
@@ -269,8 +322,9 @@ $('#btnLogin').onclick=async()=>{
   if(!/^\d{4}$/.test($('#pin').value))
     return alert('El PIN debe tener 4 dígitos.');
 
-  let r=await api('login',{rut:$('#rut').value,pin:$('#pin').value});
-  if(!r.ok) return alert(r.error);
+  return withLoading('Validando acceso...',async()=>{
+    let r=await api('login',{rut:$('#rut').value,pin:$('#pin').value});
+    if(!r.ok) return alert(r.error);
   state.user=r.user;
   $('#userName').textContent=r.user.name;
   if(DEVICE_ZONE){
@@ -295,6 +349,7 @@ $('#btnLogin').onclick=async()=>{
   $('#gpsStatus').textContent=state.gps?'Ubicación disponible':'Ubicación no disponible';
   syncHomeForActive();
   show('home');
+  });
 };
 
 setInterval(()=>{
@@ -350,9 +405,11 @@ $('#btnConfirmOtherReason').onclick=()=>{
 
 $('#btnStart').onclick=async()=>{
   if(!state.selectedZone) return alert('Selecciona Zona 1 o Zona 2.');
-  state.gps=await getGps();
-  let id='R-'+Date.now();
-  state.round={
+
+  return withLoading('Iniciando ronda...',async()=>{
+    state.gps=await getGps();
+    let id='R-'+Date.now();
+    state.round={
     id,
     user:state.user,
     zone:state.selectedZone,
@@ -377,6 +434,7 @@ $('#btnStart').onclick=async()=>{
   if(rs.id) state.round.id=rs.id;
   persistActive();
   show('scan');
+  });
 };
 
 function parseCode(raw){
@@ -543,6 +601,7 @@ $('#btnCompleteFloor').onclick=async()=>{
     answers:state.loc.answers
   });
 
+  return withLoading('Guardando piso...',async()=>{
   const saveResult=await api('saveFloor',{
     round:state.round,
     loc:state.loc,
@@ -553,6 +612,7 @@ $('#btnCompleteFloor').onclick=async()=>{
   }
   persistActive();
   showTransition();
+  });
 };
 
 $('#btnFinishEarly').onclick=()=>{
@@ -631,6 +691,7 @@ $('#endPhoto').onchange=e=>
   $('#btnFinish').disabled=!e.target.files.length;
 
 $('#btnFinish').onclick=async()=>{
+  return withLoading('Finalizando ronda...',async()=>{
   let patch={
     end:now(),
     gpsEnd:await getGps(),
@@ -648,6 +709,7 @@ $('#btnFinish').onclick=async()=>{
   clearActive();
   const dur=rf?.duration ? `\nDuración: ${rf.duration}` : '';
   logoutToLogin(`Ronda finalizada correctamente.${dur}`);
+  });
 };
 
 $('#btnDashboard').onclick=()=>show('dashboard');
@@ -670,6 +732,9 @@ function fmtTime(v){
 }
 
 async function renderDashboard(){
+  if(document.body.classList.contains('busy')) return;
+  setLoading(true,'Cargando dashboard...');
+  try{
   let r=await api('dashboard');
   let rs=r.rounds||[];
 
@@ -715,6 +780,9 @@ async function renderDashboard(){
       <small>${x.floors} pisos · ${x.issues} novedades${x.turno?' · '+x.turno:''}</small>
     </div>`;
   }).join('')||'<p>Sin datos</p>';
+  }finally{
+    setLoading(false);
+  }
 }
 
 $$('[data-go]').forEach(b=>b.onclick=()=>{
