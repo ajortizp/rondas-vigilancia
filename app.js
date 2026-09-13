@@ -305,13 +305,19 @@ setInterval(()=>{
 $('#startPhoto').onchange=()=>canStart();
 
 $('#btnNotRun').onclick=()=>{
-  if(!state.selectedZone || !$('#startPhoto').files.length){
-    return alert('Primero registra la selfie de inicio.');
+  if(!state.selectedZone){
+    return alert('No se pudo identificar la zona del teléfono.');
+  }
+  if(!$('#startPhoto').files.length){
+    return alert('Toma primero la selfie de inicio.');
   }
   openReason('notRun','home');
 };
 
 $('#btnInterruptRound').onclick=()=>{
+  if(!state.round?.id){
+    return alert('No hay una ronda activa para interrumpir.');
+  }
   stopScanner();
   openReason('interrupt','scan');
 };
