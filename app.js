@@ -26,6 +26,29 @@ function show(id){
 function now(){return new Date().toISOString()}
 function normalizeRut(s){return (s||'').replace(/[^0-9kK]/g,'').toUpperCase()}
 
+function formatRut(value){
+  let clean=normalizeRut(value).slice(0,9);
+  if(clean.length<=1) return clean;
+  const dv=clean.slice(-1);
+  let body=clean.slice(0,-1);
+
+  // Thousands separators for Chilean RUT
+  body=body.replace(/\B(?=(\d{3})+(?!\d))/g,'.');
+  return `${body}-${dv}`;
+}
+
+function rutIsStructurallyValid(value){
+  const clean=normalizeRut(value);
+  // 7-8 digit body + verifier = 8-9 characters total
+  return /^[0-9]{7,8}[0-9K]$/.test(clean);
+}
+
+function getRutPin(value){
+  const clean=normalizeRut(value);
+  if(clean.length<2) return '';
+  return clean.slice(0,-1).slice(-4);
+}
+
 async function api(action,payload={}){
   if(CONFIG.DEMO_MODE) return demoApi(action,payload);
   const r=await fetch(CONFIG.API_URL,{
@@ -72,8 +95,7 @@ async function demoApi(action,p={}){
   let db=demoDb();
   if(action==='login'){
     const nr=normalizeRut(p.rut);
-    const body=nr.slice(0,-1);
-    const rutPin=body.slice(-4);
+    const rutPin=getRutPin(p.rut);
     if(normalizeRut(p.rut)===normalizeRut(CONFIG.DEMO_RUT) && (p.pin===CONFIG.DEMO_PIN || p.pin===rutPin))
       return {ok:true,user:{rut:p.rut,name:CONFIG.DEMO_NAME}};
     return {ok:false,error:'RUT o PIN incorrecto'};
@@ -118,7 +140,37 @@ $$('.zoneBtn').forEach(btn=>{
   };
 });
 
+
+const rutInput=$('#rut');
+
+rutInput.addEventListener('input',e=>{
+  // Accept pasted/formatted/unformatted RUT, limit to 8-digit body + DV
+  const cursorAtEnd=e.target.selectionStart===e.target.value.length;
+  e.target.value=formatRut(e.target.value);
+  if(cursorAtEnd) e.target.setSelectionRange(e.target.value.length,e.target.value.length);
+});
+
+rutInput.addEventListener('blur',e=>{
+  e.target.value=formatRut(e.target.value);
+});
+
+rutInput.addEventListener('keydown',e=>{
+  if(e.key==='Enter') $('#pin').focus();
+});
+
+$('#pin').addEventListener('keydown',e=>{
+  if(e.key==='Enter') $('#btnLogin').click();
+});
+
 $('#btnLogin').onclick=async()=>{
+  $('#rut').value=formatRut($('#rut').value);
+
+  if(!rutIsStructurallyValid($('#rut').value))
+    return alert('Ingresa un RUT válido.');
+
+  if(!/^\d{4}$/.test($('#pin').value))
+    return alert('El PIN debe tener 4 dígitos.');
+
   let r=await api('login',{rut:$('#rut').value,pin:$('#pin').value});
   if(!r.ok) return alert(r.error);
   state.user=r.user;
