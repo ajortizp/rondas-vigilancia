@@ -61,6 +61,7 @@
         </label>
 
         <button id="btnStart" class="primary" disabled>Iniciar ronda</button>
+        <button id="btnNotRun" class="dangerAction bigAction" disabled>NO REALIZAR RONDA</button>
       </div>
 
       <button id="btnDashboard" class="secondary">Dashboard supervisor</button>
@@ -77,6 +78,7 @@
       <p class="hint">Escanea el QR instalado en el edificio/piso de la zona seleccionada.</p>
       <button id="btnManual" class="secondary">Ingresar código manual</button>
       <button id="btnFinishEarly" class="secondary" style="display:none">Finalizar ronda</button>
+      <button id="btnInterruptRound" class="dangerAction bigAction">INTERRUMPIR RONDA</button>
     </main>
   </section>
 
@@ -103,6 +105,7 @@
         <p id="transitionPending" class="bigInfo"></p>
         <button id="btnContinueRound" class="primary bigAction">CONTINUAR RONDA</button>
         <button id="btnEndRoundFromTransition" class="dangerAction bigAction">FINALIZAR RONDA</button>
+        <button id="btnInterruptFromTransition" class="mutedAction bigAction">INTERRUMPIR RONDA</button>
       </div>
     </main>
   </section>
@@ -119,6 +122,28 @@
     </main>
   </section>
 
+
+  <section id="reason" class="screen">
+    <header>
+      <button class="back" id="btnReasonBack">‹</button>
+      <div><b id="reasonHeader">Motivo</b><small>Selecciona una opción</small></div>
+    </header>
+    <main class="centerMain">
+      <div class="card actionCard">
+        <div class="warningIcon">!</div>
+        <h1 id="reasonTitle">¿POR QUÉ?</h1>
+        <button class="reasonBtn" data-reason="Procedimiento operativo">PROCEDIMIENTO OPERATIVO</button>
+        <button class="reasonBtn" data-reason="Emergencia">EMERGENCIA</button>
+        <button class="reasonBtn" data-reason="Instrucción de supervisor">INSTRUCCIÓN SUPERVISOR</button>
+        <button class="reasonBtn" data-reason="Otro">OTRO</button>
+        <div id="otherReasonBox" style="display:none">
+          <textarea id="otherReason" maxlength="180" placeholder="Indica brevemente el motivo"></textarea>
+          <button id="btnConfirmOtherReason" class="primary bigAction">CONFIRMAR</button>
+        </div>
+      </div>
+    </main>
+  </section>
+
   <section id="finish" class="screen">
     <header><b>Finalizar ronda</b></header>
     <main>
@@ -127,7 +152,7 @@
         <label class="photoBtn">📷 Selfie de término
           <input id="endPhoto" type="file" accept="image/*" capture="user" hidden>
         </label>
-        <button id="btnFinish" class="primary" disabled>Finalizar ronda</button>
+        <button id="btnFinish" class="primary bigAction" disabled>FINALIZAR RONDA</button>
       </div>
     </main>
   </section>

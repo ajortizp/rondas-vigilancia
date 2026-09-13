@@ -10,7 +10,9 @@ let state={
   loc:null,
   scanner:null,
   gps:null,
-  selectedZone:DEVICE_ZONE
+  selectedZone:DEVICE_ZONE,
+  reasonMode:null,
+  reasonReturn:null
 };
 
 function show(id){
@@ -91,6 +93,100 @@ function syncHomeForActive(){
   }
 }
 
+
+function logoutToLogin(message){
+  stopScanner();
+  if(message) alert(message);
+
+  state.user=null;
+  state.round=null;
+  state.loc=null;
+  state.gps=null;
+  state.reasonMode=null;
+  state.reasonReturn=null;
+  state.selectedZone=DEVICE_ZONE;
+
+  $('#rut').value='';
+  $('#pin').value='';
+  $('#startPhoto').value='';
+  $('#endPhoto').value='';
+  $('#btnStart').disabled=true;
+  if($('#btnNotRun')) $('#btnNotRun').disabled=true;
+
+  $$('.zoneBtn').forEach(x=>{
+    x.classList.toggle('selected',x.dataset.zone===DEVICE_ZONE);
+  });
+
+  if($('#zoneSelected')){
+    $('#zoneSelected').textContent=DEVICE_ZONE
+      ? 'Teléfono configurado: '+DEVICE_ZONE
+      : 'Selecciona una zona';
+  }
+
+  show('login');
+  setTimeout(()=>$('#rut')?.focus(),150);
+}
+
+function openReason(mode,returnScreen){
+  state.reasonMode=mode;
+  state.reasonReturn=returnScreen || (mode==='notRun'?'home':'scan');
+
+  $('#reasonHeader').textContent = mode==='notRun'
+    ? 'No realizar ronda'
+    : 'Interrumpir ronda';
+
+  $('#reasonTitle').textContent = mode==='notRun'
+    ? 'MOTIVO DE NO REALIZACIÓN'
+    : 'MOTIVO DE INTERRUPCIÓN';
+
+  $('#otherReasonBox').style.display='none';
+  $('#otherReason').value='';
+  show('reason');
+}
+
+async function submitReason(reason){
+  reason=(reason||'').trim();
+  if(!reason) return alert('Selecciona o escribe un motivo.');
+
+  const gps=await getGps();
+
+  if(state.reasonMode==='notRun'){
+    const result=await api('notRun',{
+      user:state.user,
+      zone:state.selectedZone,
+      turno:state.user?.turnoHabitual||'',
+      gps,
+      startPhotoName:$('#startPhoto').files[0]?.name||'',
+      reason
+    });
+
+    if(!result?.ok){
+      return alert(result?.error || 'No fue posible registrar la no realización.');
+    }
+
+    clearActive();
+    logoutToLogin('Registro guardado. La ronda quedó como No realizada.');
+    return;
+  }
+
+  if(state.reasonMode==='interrupt'){
+    if(!state.round?.id) return alert('No hay una ronda activa.');
+
+    const result=await api('interrupt',{
+      id:state.round.id,
+      reason,
+      gps
+    });
+
+    if(!result?.ok){
+      return alert(result?.error || 'No fue posible interrumpir la ronda.');
+    }
+
+    clearActive();
+    logoutToLogin('Ronda interrumpida y registrada correctamente.');
+  }
+}
+
 async function demoApi(action,p={}){
   let db=demoDb();
   if(action==='login'){
@@ -125,10 +221,12 @@ async function getGps(){
 }
 
 function canStart(){
-  $('#btnStart').disabled = !(
+  const ready=!!(
     state.selectedZone &&
     $('#startPhoto').files.length
   );
+  $('#btnStart').disabled=!ready;
+  if($('#btnNotRun')) $('#btnNotRun').disabled=!ready;
 }
 
 $$('.zoneBtn').forEach(btn=>{
@@ -206,6 +304,44 @@ setInterval(()=>{
 
 $('#startPhoto').onchange=()=>canStart();
 
+$('#btnNotRun').onclick=()=>{
+  if(!state.selectedZone || !$('#startPhoto').files.length){
+    return alert('Primero registra la selfie de inicio.');
+  }
+  openReason('notRun','home');
+};
+
+$('#btnInterruptRound').onclick=()=>{
+  stopScanner();
+  openReason('interrupt','scan');
+};
+
+$('#btnInterruptFromTransition').onclick=()=>{
+  openReason('interrupt','transition');
+};
+
+$('#btnReasonBack').onclick=()=>{
+  const target=state.reasonReturn || 'home';
+  state.reasonMode=null;
+  show(target);
+};
+
+$$('.reasonBtn').forEach(btn=>{
+  btn.onclick=()=>{
+    const reason=btn.dataset.reason;
+    if(reason==='Otro'){
+      $('#otherReasonBox').style.display='block';
+      $('#otherReason').focus();
+      return;
+    }
+    submitReason(reason);
+  };
+});
+
+$('#btnConfirmOtherReason').onclick=()=>{
+  submitReason($('#otherReason').value);
+};
+
 $('#btnStart').onclick=async()=>{
   if(!state.selectedZone) return alert('Selecciona Zona 1 o Zona 2.');
   state.gps=await getGps();
@@ -214,6 +350,7 @@ $('#btnStart').onclick=async()=>{
     id,
     user:state.user,
     zone:state.selectedZone,
+    turno:state.user?.turnoHabitual||'',
     start:now(),
     gpsStart:state.gps,
     status:'En curso',
@@ -503,18 +640,8 @@ $('#btnFinish').onclick=async()=>{
   });
   if(!rf?.ok) return alert(rf?.error || 'No fue posible finalizar la ronda.');
   clearActive();
-  alert('Ronda finalizada correctamente');
-
-  state.round=null;
-  state.loc=null;
-  state.selectedZone=DEVICE_ZONE;
-  $$('.zoneBtn').forEach(x=>x.classList.toggle('selected',x.dataset.zone===DEVICE_ZONE));
-  $('#zoneSelected').textContent=DEVICE_ZONE?'Teléfono configurado: '+DEVICE_ZONE:'Selecciona una zona';
-  $('#startPhoto').value='';
-  $('#endPhoto').value='';
-  $('#btnStart').disabled=true;
-  syncHomeForActive();
-  show('home');
+  const dur=rf?.duration ? `\nDuración: ${rf.duration}` : '';
+  logoutToLogin(`Ronda finalizada correctamente.${dur}`);
 };
 
 $('#btnDashboard').onclick=()=>show('dashboard');
@@ -539,21 +666,49 @@ function fmtTime(v){
 async function renderDashboard(){
   let r=await api('dashboard');
   let rs=r.rounds||[];
-  let today=new Date().toISOString().slice(0,10);
-  let todays=rs.filter(x=>(x.start||'').slice(0,10)===today);
+
+  const mapRound=x=>({
+    id:x.IDRonda ?? x.id ?? '',
+    name:x.Nombre ?? x.user?.name ?? '',
+    zone:x.Zona ?? x.zone ?? '',
+    status:x.Estado ?? x.status ?? '',
+    start:x.FechaInicio ?? x.start ?? '',
+    end:x.FechaFin ?? x.end ?? '',
+    duration:x.Duracion ?? '',
+    floors:Number(x.CantidadPisos ?? (x.visits||[]).length ?? 0),
+    issues:Number(x.CantidadNovedades ?? x.issues ?? 0),
+    turno:x.Turno ?? ''
+  });
+
+  const mapped=rs.map(mapRound);
+
+  const localDay=v=>{
+    if(!v) return '';
+    const d=new Date(v);
+    if(isNaN(d)) return '';
+    return [
+      d.getFullYear(),
+      String(d.getMonth()+1).padStart(2,'0'),
+      String(d.getDate()).padStart(2,'0')
+    ].join('-');
+  };
+
+  const today=localDay(new Date());
+  const todays=mapped.filter(x=>localDay(x.start)===today);
 
   $('#kToday').textContent=todays.length;
   $('#kDone').textContent=todays.filter(x=>x.status==='Finalizada').length;
-  $('#kOpen').textContent=todays.filter(x=>x.status!=='Finalizada').length;
-  $('#kIssues').textContent=todays.reduce((a,x)=>a+(x.issues||0),0);
+  $('#kOpen').textContent=todays.filter(x=>x.status==='En curso').length;
+  $('#kIssues').textContent=todays.reduce((a,x)=>a+x.issues,0);
 
-  $('#dashRows').innerHTML=rs.slice().reverse().map(x=>
-    `<div class="dashrow">
-      <b>${x.user?.name||''}</b> · ${x.zone||'Sin zona'} · ${x.status}<br>
-      <small>Inicio ${fmtTime(x.start)} · Fin ${x.end?fmtTime(x.end):'En curso'} · Duración ${fmtDuration(x.start,x.end)}</small><br>
-      <small>${(x.visits||[]).length} pisos · ${x.issues||0} novedades</small>
-    </div>`
-  ).join('')||'<p>Sin datos</p>';
+  $('#dashRows').innerHTML=mapped.slice().reverse().map(x=>{
+    const duration=x.duration || fmtDuration(x.start,x.end);
+    return `<div class="dashrow">
+      <b>${x.name||''}</b> · ${x.zone||'Sin zona'} · ${x.status||''}<br>
+      <small>Inicio ${fmtTime(x.start)} · Fin ${x.end?fmtTime(x.end):'En curso'} · Duración ${duration}</small><br>
+      <small>${x.floors} pisos · ${x.issues} novedades${x.turno?' · '+x.turno:''}</small>
+    </div>`;
+  }).join('')||'<p>Sin datos</p>';
 }
 
 $$('[data-go]').forEach(b=>b.onclick=()=>{

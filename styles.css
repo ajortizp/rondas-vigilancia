@@ -15,3 +15,36 @@
 .bigAction{width:100%;min-height:64px;font-size:19px;font-weight:800;margin-top:14px;border-radius:14px}
 .dangerAction{width:100%;border:2px solid #b3202a;background:#fff;color:#b3202a;padding:15px;border-radius:14px;font-weight:800}
 .resumeCard{text-align:center;border:2px solid #16834a}
+
+.mutedAction{
+  width:100%;
+  border:2px solid #777;
+  background:#fff;
+  color:#555;
+  padding:15px;
+  border-radius:14px;
+  font-weight:800;
+}
+.reasonBtn{
+  display:block;
+  width:100%;
+  min-height:62px;
+  margin:12px 0;
+  border:2px solid #b3202a;
+  border-radius:14px;
+  background:#fff;
+  color:#8f1c25;
+  font-size:16px;
+  font-weight:800;
+  padding:12px;
+}
+#otherReasonBox textarea{
+  width:100%;
+  min-height:90px;
+  margin-top:12px;
+  padding:12px;
+  border:1px solid #bbb;
+  border-radius:12px;
+  font-size:16px;
+  box-sizing:border-box;
+}
