@@ -1,14 +1,119 @@
 <!doctype html>
-<html lang="es"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
-<title>Rondas de Vigilancia</title><link rel="manifest" href="manifest.json"><link rel="stylesheet" href="styles.css">
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>Rondas de Vigilancia</title>
+<link rel="manifest" href="manifest.json">
+<link rel="stylesheet" href="styles.css">
 <script src="https://unpkg.com/html5-qrcode@2.3.8/html5-qrcode.min.js"></script>
-</head><body>
+</head>
+<body>
 <div id="app">
-  <section id="login" class="screen hero active"><div class="overlay"><img class="logo" src="assets/metro-logo.png"><h1>Rondas de Vigilancia</h1><p>Infraestructura y Procesos de Seguridad</p><div class="card"><label>RUT</label><input id="rut" placeholder="12.345.678-9" inputmode="text"><label>PIN</label><input id="pin" type="password" inputmode="numeric" maxlength="6" placeholder="••••"><button id="btnLogin" class="primary">Ingresar</button><p class="hint">Piloto controlado</p></div></div></section>
-  <section id="home" class="screen"><header><img src="assets/metro-logo.png"><div><b>Rondas de Vigilancia</b><small id="userName"></small></div></header><main><div class="status"><span id="clock"></span><span id="gpsStatus">Ubicación pendiente</span></div><div class="card"><h2>Iniciar ronda</h2><p>Registra una selfie, fecha/hora y ubicación antes de comenzar.</p><label class="photoBtn">📷 Selfie de inicio<input id="startPhoto" type="file" accept="image/*" capture="user" hidden></label><button id="btnStart" class="primary" disabled>Iniciar ronda</button></div><button id="btnDashboard" class="secondary">Dashboard supervisor</button></main></section>
-  <section id="scan" class="screen"><header><button class="back" data-go="home">‹</button><b>Escanear punto</b></header><main><div id="reader"></div><p class="hint">Escanea el QR instalado en el edificio/piso.</p><button id="btnManual" class="secondary">Ingresar código manual</button></main></section>
-  <section id="checklist" class="screen"><header><button class="back" data-go="scan">‹</button><div><b id="locTitle"></b><small id="locSub"></small></div></header><main><div id="progress" class="progress"></div><div id="points"></div><button id="btnCompleteFloor" class="primary">Completar piso</button></main></section>
-  <section id="finish" class="screen"><header><b>Finalizar ronda</b></header><main><div class="card"><div id="finishSummary"></div><label class="photoBtn">📷 Selfie de término<input id="endPhoto" type="file" accept="image/*" capture="user" hidden></label><button id="btnFinish" class="primary" disabled>Finalizar ronda</button></div></main></section>
-  <section id="dashboard" class="screen"><header><button class="back" data-go="home">‹</button><b>Dashboard</b></header><main><div class="kpis"><div><strong id="kToday">0</strong><span>Rondas hoy</span></div><div><strong id="kDone">0</strong><span>Finalizadas</span></div><div><strong id="kOpen">0</strong><span>En curso</span></div><div><strong id="kIssues">0</strong><span>Novedades</span></div></div><div class="card"><h3>Rondas registradas</h3><div id="dashRows"></div></div></main></section>
+  <section id="login" class="screen hero active">
+    <div class="overlay">
+      <img class="logo" src="assets/metro-logo.png">
+      <h1>Rondas de Vigilancia</h1>
+      <p>Infraestructura y Procesos de Seguridad</p>
+      <div class="card">
+        <label>RUT</label>
+        <input id="rut" placeholder="12.345.678-9" inputmode="text">
+        <label>PIN</label>
+        <input id="pin" type="password" inputmode="numeric" maxlength="6" placeholder="••••">
+        <button id="btnLogin" class="primary">Ingresar</button>
+        <p class="hint">Piloto controlado</p>
+      </div>
+    </div>
+  </section>
+
+  <section id="home" class="screen">
+    <header>
+      <img src="assets/metro-logo.png">
+      <div><b>Rondas de Vigilancia</b><small id="userName"></small></div>
+    </header>
+    <main>
+      <div class="status">
+        <span id="clock"></span>
+        <span id="gpsStatus">Ubicación pendiente</span>
+      </div>
+
+      <div class="card">
+        <h2>Iniciar ronda</h2>
+        <p>Selecciona la zona que vas a recorrer. La ronda solo aceptará QR pertenecientes a esa zona.</p>
+
+        <label>Zona de ronda</label>
+        <div class="zonePicker">
+          <button type="button" class="zoneBtn" data-zone="Zona 1">Zona 1</button>
+          <button type="button" class="zoneBtn" data-zone="Zona 2">Zona 2</button>
+        </div>
+        <p id="zoneSelected" class="hint">Selecciona una zona</p>
+
+        <p>Registra una selfie, fecha/hora y ubicación antes de comenzar.</p>
+        <label class="photoBtn">📷 Selfie de inicio
+          <input id="startPhoto" type="file" accept="image/*" capture="user" hidden>
+        </label>
+
+        <button id="btnStart" class="primary" disabled>Iniciar ronda</button>
+      </div>
+
+      <button id="btnDashboard" class="secondary">Dashboard supervisor</button>
+    </main>
+  </section>
+
+  <section id="scan" class="screen">
+    <header>
+      <button class="back" data-go="home">‹</button>
+      <div><b>Escanear punto</b><small id="scanZone"></small></div>
+    </header>
+    <main>
+      <div id="reader"></div>
+      <p class="hint">Escanea el QR instalado en el edificio/piso de la zona seleccionada.</p>
+      <button id="btnManual" class="secondary">Ingresar código manual</button>
+      <button id="btnFinishEarly" class="secondary" style="display:none">Finalizar ronda</button>
+    </main>
+  </section>
+
+  <section id="checklist" class="screen">
+    <header>
+      <button class="back" data-go="scan">‹</button>
+      <div><b id="locTitle"></b><small id="locSub"></small></div>
+    </header>
+    <main>
+      <div id="progress" class="progress"></div>
+      <div id="points"></div>
+      <button id="btnCompleteFloor" class="primary">Completar piso</button>
+    </main>
+  </section>
+
+  <section id="finish" class="screen">
+    <header><b>Finalizar ronda</b></header>
+    <main>
+      <div class="card">
+        <div id="finishSummary"></div>
+        <label class="photoBtn">📷 Selfie de término
+          <input id="endPhoto" type="file" accept="image/*" capture="user" hidden>
+        </label>
+        <button id="btnFinish" class="primary" disabled>Finalizar ronda</button>
+      </div>
+    </main>
+  </section>
+
+  <section id="dashboard" class="screen">
+    <header><button class="back" data-go="home">‹</button><b>Dashboard</b></header>
+    <main>
+      <div class="kpis">
+        <div><strong id="kToday">0</strong><span>Rondas hoy</span></div>
+        <div><strong id="kDone">0</strong><span>Finalizadas</span></div>
+        <div><strong id="kOpen">0</strong><span>En curso</span></div>
+        <div><strong id="kIssues">0</strong><span>Novedades</span></div>
+      </div>
+      <div class="card"><h3>Rondas registradas</h3><div id="dashRows"></div></div>
+    </main>
+  </section>
 </div>
-<script src="config.js"></script><script src="sites.js"></script><script src="app.js"></script></body></html>
+
+<script src="config.js"></script>
+<script src="sites.js"></script>
+<script src="app.js"></script>
+</body>
+</html>
