@@ -37,6 +37,33 @@ function demoDb(){
   return JSON.parse(localStorage.getItem('rv_demo')||'{"rounds":[]}');
 }
 function saveDb(db){localStorage.setItem('rv_demo',JSON.stringify(db))}
+function activeKey(){return 'rv_active_'+normalizeRut(state.user?.rut||'')}
+function persistActive(){
+  if(state.user && state.round) localStorage.setItem(activeKey(),JSON.stringify(state.round));
+}
+function clearActive(){
+  if(state.user) localStorage.removeItem(activeKey());
+}
+function getActive(){
+  if(!state.user) return null;
+  try{return JSON.parse(localStorage.getItem(activeKey())||'null')}catch(e){return null}
+}
+function syncHomeForActive(){
+  const active=getActive();
+  const resume=$('#resumeCard');
+  const fresh=$('#newRoundCard');
+  if(active && active.status==='En curso'){
+    state.round=active;
+    state.selectedZone=active.zone;
+    resume.style.display='block';
+    fresh.style.display='none';
+    const expected=SITES.filter(s=>s.zone===active.zone).length;
+    $('#resumeInfo').textContent=`${active.zone} · ${(active.visits||[]).length}/${expected} pisos registrados`;
+  }else{
+    resume.style.display='none';
+    fresh.style.display='block';
+  }
+}
 
 async function demoApi(action,p={}){
   let db=demoDb();
@@ -92,6 +119,7 @@ $('#btnLogin').onclick=async()=>{
   $('#userName').textContent=r.user.name;
   state.gps=await getGps();
   $('#gpsStatus').textContent=state.gps?'Ubicación disponible':'Ubicación no disponible';
+  syncHomeForActive();
   show('home');
 };
 
@@ -118,6 +146,7 @@ $('#btnStart').onclick=async()=>{
     startPhotoName:$('#startPhoto').files[0]?.name||''
   };
   await api('start',state.round);
+  persistActive();
   show('scan');
 };
 
@@ -292,38 +321,59 @@ $('#btnCompleteFloor').onclick=async()=>{
       issues:state.round.issues
     }
   });
-
-  const remaining=remainingZoneSites();
-
-  if(remaining.length===0){
-    alert(`${state.round.zone} completada. Se registraron todos los QR configurados para esta zona.`);
-    prepareFinish();
-    return;
-  }
-
-  const next=remaining[0];
-  const goNext=confirm(
-    `Piso registrado correctamente.\n\n`+
-    `Pendientes en ${state.round.zone}: ${remaining.length}\n`+
-    `Siguiente sugerido: ${next.building} - ${next.floor}\n\n`+
-    `Aceptar para escanear el siguiente QR.\n`+
-    `Cancelar para finalizar la ronda ahora.`
-  );
-
-  if(goNext) show('scan');
-  else prepareFinish();
+  persistActive();
+  showTransition();
 };
 
 $('#btnFinishEarly').onclick=()=>{
+  stopScanner();
+  requestFinish();
+};
+
+
+function showTransition(){
+  const remaining=remainingZoneSites();
+  const last=state.round.visits[state.round.visits.length-1];
+
+  if(remaining.length===0){
+    $('#transitionTitle').textContent=(state.round.zone||'ZONA').toUpperCase()+' COMPLETADA';
+    $('#transitionPlace').textContent='Todos los pisos revisados';
+    $('#transitionPending').textContent='';
+    $('#btnContinueRound').style.display='none';
+    $('#btnEndRoundFromTransition').textContent='FINALIZAR RONDA';
+  }else{
+    const next=remaining[0];
+    $('#transitionTitle').textContent='PISO COMPLETADO';
+    $('#transitionPlace').textContent=`${last.building} · ${last.floor}`;
+    $('#transitionPending').textContent=`${remaining.length} pisos pendientes`;
+    $('#btnContinueRound').style.display='block';
+    $('#btnContinueRound').textContent='CONTINUAR RONDA';
+    $('#btnEndRoundFromTransition').textContent='FINALIZAR RONDA';
+  }
+  show('transition');
+}
+
+function requestFinish(){
   const remaining=remainingZoneSites().length;
   if(remaining>0){
-    if(!confirm(
-      `Aún quedan ${remaining} QR/pisos pendientes en ${state.round.zone}.\n\n`+
-      `¿Deseas finalizar la ronda igualmente?`
-    )) return;
+    $('#pendingTitle').textContent=`QUEDAN ${remaining} ${remaining===1?'PISO':'PISOS'}`;
+    show('pendingFinish');
+  }else{
+    prepareFinish();
   }
-  stopScanner();
-  prepareFinish();
+}
+
+$('#btnContinueRound').onclick=()=>show('scan');
+$('#btnEndRoundFromTransition').onclick=()=>requestFinish();
+$('#btnKeepGoing').onclick=()=>show('scan');
+$('#btnFinishAnyway').onclick=()=>prepareFinish();
+
+$('#btnResume').onclick=()=>{
+  const active=getActive();
+  if(!active) return syncHomeForActive();
+  state.round=active;
+  state.selectedZone=active.zone;
+  show('scan');
 };
 
 function prepareFinish(){
@@ -359,6 +409,7 @@ $('#btnFinish').onclick=async()=>{
   };
   Object.assign(state.round,patch);
   await api('update',{id:state.round.id,patch});
+  clearActive();
   alert('Ronda finalizada correctamente');
 
   state.round=null;
@@ -369,6 +420,7 @@ $('#btnFinish').onclick=async()=>{
   $('#startPhoto').value='';
   $('#endPhoto').value='';
   $('#btnStart').disabled=true;
+  syncHomeForActive();
   show('home');
 };
 
@@ -395,7 +447,8 @@ async function renderDashboard(){
 
 $$('[data-go]').forEach(b=>b.onclick=()=>{
   if(b.dataset.go==='home' && state.round){
-    if(!confirm('Hay una ronda en curso. Volver no la finaliza. ¿Continuar?')) return;
+    persistActive();
+    syncHomeForActive();
   }
   if(b.dataset.go!=='scan') stopScanner();
   show(b.dataset.go);

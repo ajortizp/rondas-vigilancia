@@ -37,7 +37,14 @@
         <span id="gpsStatus">Ubicación pendiente</span>
       </div>
 
-      <div class="card">
+      <div id="resumeCard" class="card resumeCard" style="display:none">
+        <div class="bigCheck">↻</div>
+        <h2>RONDA EN CURSO</h2>
+        <p id="resumeInfo" class="bigInfo"></p>
+        <button id="btnResume" class="primary bigAction">CONTINUAR RONDA</button>
+      </div>
+
+      <div id="newRoundCard" class="card">
         <h2>Iniciar ronda</h2>
         <p>Selecciona la zona que vas a recorrer. La ronda solo aceptará QR pertenecientes a esa zona.</p>
 
@@ -82,6 +89,33 @@
       <div id="progress" class="progress"></div>
       <div id="points"></div>
       <button id="btnCompleteFloor" class="primary">Completar piso</button>
+    </main>
+  </section>
+
+
+  <section id="transition" class="screen">
+    <header><b>Ronda de Vigilancia</b></header>
+    <main class="centerMain">
+      <div class="card actionCard">
+        <div class="bigCheck">✓</div>
+        <h1 id="transitionTitle">PISO COMPLETADO</h1>
+        <h2 id="transitionPlace"></h2>
+        <p id="transitionPending" class="bigInfo"></p>
+        <button id="btnContinueRound" class="primary bigAction">CONTINUAR RONDA</button>
+        <button id="btnEndRoundFromTransition" class="dangerAction bigAction">FINALIZAR RONDA</button>
+      </div>
+    </main>
+  </section>
+
+  <section id="pendingFinish" class="screen">
+    <header><b>Ronda de Vigilancia</b></header>
+    <main class="centerMain">
+      <div class="card actionCard">
+        <div class="warningIcon">!</div>
+        <h1 id="pendingTitle">QUEDAN PISOS</h1>
+        <button id="btnKeepGoing" class="primary bigAction">CONTINUAR RONDA</button>
+        <button id="btnFinishAnyway" class="dangerAction bigAction">FINALIZAR IGUALMENTE</button>
+      </div>
     </main>
   </section>
 

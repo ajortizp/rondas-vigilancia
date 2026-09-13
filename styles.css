@@ -4,3 +4,14 @@
 .zonePicker{display:grid;grid-template-columns:1fr 1fr;gap:10px;margin:10px 0}
 .zoneBtn{border:2px solid #b3202a;background:#fff;color:#8f1c25;border-radius:10px;padding:14px 10px;font-weight:700;font-size:16px}
 .zoneBtn.selected{background:#b3202a;color:#fff}
+
+.centerMain{display:flex;align-items:center;justify-content:center;min-height:72vh}
+.actionCard{text-align:center;padding:28px 20px}
+.actionCard h1{font-size:30px;line-height:1.05;margin:10px 0}
+.actionCard h2{font-size:20px;margin:8px 0 14px}
+.bigCheck{font-size:54px;font-weight:800;color:#16834a;line-height:1}
+.warningIcon{margin:0 auto 10px;width:64px;height:64px;border-radius:50%;display:flex;align-items:center;justify-content:center;background:#f3b61f;color:#222;font-size:42px;font-weight:900}
+.bigInfo{font-size:20px;font-weight:700;margin:12px 0 20px}
+.bigAction{width:100%;min-height:64px;font-size:19px;font-weight:800;margin-top:14px;border-radius:14px}
+.dangerAction{width:100%;border:2px solid #b3202a;background:#fff;color:#b3202a;padding:15px;border-radius:14px;font-weight:800}
+.resumeCard{text-align:center;border:2px solid #16834a}
