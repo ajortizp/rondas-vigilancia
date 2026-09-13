@@ -181,6 +181,18 @@ $('#btnLogin').onclick=async()=>{
     $('#zoneSelected').textContent='Teléfono configurado: '+DEVICE_ZONE;
     $$('.zoneBtn').forEach(x=>x.style.display='none');
   }
+
+  try{
+    const rr=await api('resume',{rut:state.user.rut});
+    if(rr?.ok && rr.round){
+      state.round=rr.round;
+      state.selectedZone=rr.round.zone || DEVICE_ZONE;
+      localStorage.setItem(activeKey(),JSON.stringify(rr.round));
+    }
+  }catch(e){
+    console.warn('No se pudo consultar la ronda activa del backend',e);
+  }
+
   state.gps=await getGps();
   $('#gpsStatus').textContent=state.gps?'Ubicación disponible':'Ubicación no disponible';
   syncHomeForActive();
@@ -209,7 +221,17 @@ $('#btnStart').onclick=async()=>{
     issues:0,
     startPhotoName:$('#startPhoto').files[0]?.name||''
   };
-  await api('start',state.round);
+  const rs=await api('start',state.round);
+  if(!rs?.ok){
+    if(rs?.activeRound){
+      state.round=rs.activeRound;
+      persistActive();
+      syncHomeForActive();
+      return alert('Ya tienes una ronda en curso. Continúa la ronda existente.');
+    }
+    return alert(rs?.error || 'No fue posible iniciar la ronda.');
+  }
+  if(rs.id) state.round.id=rs.id;
   persistActive();
   show('scan');
 };
@@ -378,13 +400,14 @@ $('#btnCompleteFloor').onclick=async()=>{
     answers:state.loc.answers
   });
 
-  await api('update',{
-    id:state.round.id,
-    patch:{
-      visits:state.round.visits,
-      issues:state.round.issues
-    }
+  const saveResult=await api('saveFloor',{
+    round:state.round,
+    loc:state.loc,
+    gps:await getGps()
   });
+  if(!saveResult?.ok){
+    return alert(saveResult?.error || 'No fue posible guardar el piso.');
+  }
   persistActive();
   showTransition();
 };
@@ -472,7 +495,13 @@ $('#btnFinish').onclick=async()=>{
     endPhotoName:$('#endPhoto').files[0]?.name||''
   };
   Object.assign(state.round,patch);
-  await api('update',{id:state.round.id,patch});
+  const rf=await api('finish',{
+    id:state.round.id,
+    end:patch.end,
+    gpsEnd:patch.gpsEnd,
+    endPhotoName:patch.endPhotoName
+  });
+  if(!rf?.ok) return alert(rf?.error || 'No fue posible finalizar la ronda.');
   clearActive();
   alert('Ronda finalizada correctamente');
 
