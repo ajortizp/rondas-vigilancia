@@ -1,0 +1,15 @@
+{
+  "name": "Rondas de Vigilancia",
+  "short_name": "Rondas",
+  "start_url": "./",
+  "display": "standalone",
+  "background_color": "#f4f5f7",
+  "theme_color": "#b51f28",
+  "icons": [
+    {
+      "src": "assets/metro-logo.png",
+      "sizes": "512x512",
+      "type": "image/png"
+    }
+  ]
+}
