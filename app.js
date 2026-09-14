@@ -858,7 +858,6 @@ function renderSupervisorDashboard(){
   }).join('')||'<p>Sin datos.</p>';
 }
 async function renderDashboard(){
-  if(document.body.classList.contains('busy')) return;
   setLoading(true,'Cargando dashboard...');
   try{
     const r=await api('dashboard');
