@@ -134,8 +134,8 @@ function syncHomeForActive(){
     state.selectedZone=active.zone;
     resume.style.display='block';
     fresh.style.display='none';
-    const expected=SITES.filter(s=>s.zone===active.zone).length;
-    $('#resumeInfo').textContent=`${active.zone} · ${(active.visits||[]).length}/${expected} pisos registrados`;
+    const registrados=(active.visits||[]).length;
+    $('#resumeInfo').textContent=`${active.zone} · ${registrados} ${registrados===1?'sector/piso registrado':'sectores/pisos registrados'}`;
   }else{
     resume.style.display='none';
     fresh.style.display='block';
@@ -641,7 +641,8 @@ function showTransition(){
     const next=remaining[0];
     $('#transitionTitle').textContent='PISO COMPLETADO';
     $('#transitionPlace').textContent=`${last.building} · ${last.floor}`;
-    $('#transitionPending').textContent=`${remaining.length} pisos pendientes`;
+    const registrados=state.round.visits.length;
+    $('#transitionPending').textContent=`${registrados} ${registrados===1?'sector/piso registrado':'sectores/pisos registrados'} en esta ronda`;
     $('#btnContinueRound').style.display='block';
     $('#btnContinueRound').textContent='CONTINUAR RONDA';
     $('#btnEndRoundFromTransition').textContent='FINALIZAR RONDA';
@@ -650,13 +651,7 @@ function showTransition(){
 }
 
 function requestFinish(){
-  const remaining=remainingZoneSites().length;
-  if(remaining>0){
-    $('#pendingTitle').textContent=`QUEDAN ${remaining} ${remaining===1?'PISO':'PISOS'}`;
-    show('pendingFinish');
-  }else{
-    prepareFinish();
-  }
+  prepareFinish();
 }
 
 $('#btnContinueRound').onclick=()=>show('scan');
@@ -680,13 +675,12 @@ function prepareFinish(){
   let total=state.round.visits.reduce(
     (a,v)=>a+v.answers.length,0
   );
-  let expectedSites=zoneSites().length;
   let visitedSites=state.round.visits.length;
 
   $('#finishSummary').innerHTML=`
     <h2>Resumen</h2>
     <p><b>${state.round.zone}</b></p>
-    <p><b>${visitedSites}/${expectedSites}</b> pisos/QR registrados</p>
+    <p><b>${visitedSites}</b> ${visitedSites===1?'sector/piso registrado':'sectores/pisos registrados'}</p>
     <p><b>${reviewed}/${total}</b> puntos revisados</p>
     <p><b>${state.round.issues}</b> novedades</p>`;
 
