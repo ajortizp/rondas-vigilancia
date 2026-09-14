@@ -347,8 +347,14 @@ $('#btnLogin').onclick=async()=>{
 
   state.gps=await getGps();
   $('#gpsStatus').textContent=state.gps?'Ubicación disponible':'Ubicación no disponible';
-  syncHomeForActive();
-  show('home');
+
+  if(String(state.user?.role||'').toLowerCase()==='supervisor'){
+    if($('#dashUser')) $('#dashUser').textContent=state.user.name||'Supervisor';
+    show('dashboard');
+  }else{
+    syncHomeForActive();
+    show('home');
+  }
   });
 };
 
@@ -731,55 +737,144 @@ function fmtTime(v){
   return new Date(v).toLocaleTimeString('es-CL',{hour:'2-digit',minute:'2-digit'});
 }
 
+
+let dashboardCache={rounds:[],novedades:[]};
+
+function normalizeBackendRound(x){
+  return {
+    id:x.IDRonda ?? x.id ?? '',
+    name:x.Nombre ?? x.user?.name ?? '',
+    rut:x.RUT ?? x.user?.rut ?? '',
+    zone:x.Zona ?? x.zone ?? '',
+    turno:x.Turno ?? '',
+    status:x.Estado ?? x.status ?? '',
+    motivo:x.MotivoCierre ?? '',
+    start:x.FechaInicio ?? x.start ?? '',
+    end:x.FechaFin ?? x.end ?? '',
+    duration:x.Duracion ?? '',
+    durationSeconds:Number(x.DuracionSegundos ?? 0),
+    floors:Number(x.CantidadPisos ?? (x.visits||[]).length ?? 0),
+    points:Number(x.CantidadPuntos ?? 0),
+    issues:Number(x.CantidadNovedades ?? x.issues ?? 0)
+  };
+}
+
+function localDateKey(v){
+  if(!v) return '';
+  const d=new Date(v);
+  if(isNaN(d)) return '';
+  return [d.getFullYear(),String(d.getMonth()+1).padStart(2,'0'),String(d.getDate()).padStart(2,'0')].join('-');
+}
+
+function secondsToHM(sec){
+  sec=Math.max(0,Number(sec)||0);
+  const h=Math.floor(sec/3600);
+  const m=Math.floor((sec%3600)/60);
+  return `${String(h).padStart(2,'0')}:${String(m).padStart(2,'0')}`;
+}
+
+function populateVigilanteFilter(rounds){
+  const sel=$('#fVigilante');
+  if(!sel) return;
+  const current=sel.value;
+  const names=[...new Set(rounds.map(x=>x.name).filter(Boolean))].sort((a,b)=>a.localeCompare(b,'es'));
+  sel.innerHTML='<option value="">Todos</option>'+names.map(n=>`<option>${n}</option>`).join('');
+  if(names.includes(current)) sel.value=current;
+}
+
+function getFilteredRounds(){
+  let rs=dashboardCache.rounds.map(normalizeBackendRound);
+  const desde=$('#fDesde')?.value||'';
+  const hasta=$('#fHasta')?.value||'';
+  const zona=$('#fZona')?.value||'';
+  const turno=$('#fTurno')?.value||'';
+  const estado=$('#fEstado')?.value||'';
+  const vigilante=$('#fVigilante')?.value||'';
+
+  return rs.filter(x=>{
+    const d=localDateKey(x.start);
+    if(desde && d<desde) return false;
+    if(hasta && d>hasta) return false;
+    if(zona && x.zone!==zona) return false;
+    if(turno && x.turno!==turno) return false;
+    if(estado && x.status!==estado) return false;
+    if(vigilante && x.name!==vigilante) return false;
+    return true;
+  });
+}
+
+function renderSupervisorDashboard(){
+  const rs=getFilteredRounds();
+
+  $('#kToday').textContent=rs.length;
+  $('#kDone').textContent=rs.filter(x=>x.status==='Finalizada').length;
+  $('#kOpen').textContent=rs.filter(x=>x.status==='En curso').length;
+  $('#kInterrupted').textContent=rs.filter(x=>x.status==='Interrumpida').length;
+  $('#kNotRun').textContent=rs.filter(x=>x.status==='No realizada').length;
+  $('#kIssues').textContent=rs.reduce((a,x)=>a+x.issues,0);
+
+  const completed=rs.filter(x=>x.status==='Finalizada' && x.durationSeconds>0);
+  const avg=completed.length ? completed.reduce((a,x)=>a+x.durationSeconds,0)/completed.length : 0;
+  $('#kAvg').textContent=secondsToHM(avg);
+
+  $('#dashRows').innerHTML=rs.slice().reverse().map(x=>{
+    const duration=x.duration || (x.start ? fmtDuration(x.start,x.end) : '—');
+    const motive=x.motivo ? `<br><small>Motivo: ${x.motivo}</small>` : '';
+    return `<div class="dashrow">
+      <b>${x.name||'Sin nombre'}</b> · ${x.zone||'Sin zona'} · <strong>${x.status||''}</strong><br>
+      <small>${localDateKey(x.start)} · ${fmtTime(x.start)} → ${x.end?fmtTime(x.end):'En curso'} · ${duration}</small><br>
+      <small>${x.floors} pisos · ${x.points} puntos · ${x.issues} novedades${x.turno?' · '+x.turno:''}</small>
+      ${motive}
+    </div>`;
+  }).join('')||'<p>Sin registros para los filtros seleccionados.</p>';
+
+  const by={};
+  rs.forEach(x=>{
+    if(!x.name) return;
+    if(!by[x.name]) by[x.name]={name:x.name,total:0,done:0,secs:0,doneWithDuration:0,issues:0};
+    const v=by[x.name];
+    v.total++;
+    v.issues+=x.issues;
+    if(x.status==='Finalizada'){
+      v.done++;
+      if(x.durationSeconds>0){
+        v.secs+=x.durationSeconds;
+        v.doneWithDuration++;
+      }
+    }
+  });
+
+  const ranking=Object.values(by).sort((a,b)=>b.done-a.done || b.total-a.total || a.name.localeCompare(b.name,'es'));
+
+  $('#rankingRows').innerHTML=ranking.map((x,i)=>{
+    const avg=x.doneWithDuration?secondsToHM(x.secs/x.doneWithDuration):'—';
+    return `<div class="rankrow">
+      <div class="rankpos">${i+1}</div>
+      <div class="rankbody">
+        <b>${x.name}</b>
+        <small>${x.total} rondas · ${x.done} finalizadas · Prom. ${avg} · ${x.issues} novedades</small>
+      </div>
+    </div>`;
+  }).join('')||'<p>Sin datos.</p>';
+}
 async function renderDashboard(){
   if(document.body.classList.contains('busy')) return;
   setLoading(true,'Cargando dashboard...');
   try{
-  let r=await api('dashboard');
-  let rs=r.rounds||[];
+    const r=await api('dashboard');
+    if(!r?.ok) return alert(r?.error || 'No fue posible cargar el dashboard.');
 
-  const mapRound=x=>({
-    id:x.IDRonda ?? x.id ?? '',
-    name:x.Nombre ?? x.user?.name ?? '',
-    zone:x.Zona ?? x.zone ?? '',
-    status:x.Estado ?? x.status ?? '',
-    start:x.FechaInicio ?? x.start ?? '',
-    end:x.FechaFin ?? x.end ?? '',
-    duration:x.Duracion ?? '',
-    floors:Number(x.CantidadPisos ?? (x.visits||[]).length ?? 0),
-    issues:Number(x.CantidadNovedades ?? x.issues ?? 0),
-    turno:x.Turno ?? ''
-  });
+    dashboardCache={rounds:r.rounds||[],novedades:r.novedades||[]};
+    const normalized=dashboardCache.rounds.map(normalizeBackendRound);
+    populateVigilanteFilter(normalized);
 
-  const mapped=rs.map(mapRound);
+    if(!$('#fDesde').value && !$('#fHasta').value){
+      const today=localDateKey(new Date());
+      $('#fDesde').value=today;
+      $('#fHasta').value=today;
+    }
 
-  const localDay=v=>{
-    if(!v) return '';
-    const d=new Date(v);
-    if(isNaN(d)) return '';
-    return [
-      d.getFullYear(),
-      String(d.getMonth()+1).padStart(2,'0'),
-      String(d.getDate()).padStart(2,'0')
-    ].join('-');
-  };
-
-  const today=localDay(new Date());
-  const todays=mapped.filter(x=>localDay(x.start)===today);
-
-  $('#kToday').textContent=todays.length;
-  $('#kDone').textContent=todays.filter(x=>x.status==='Finalizada').length;
-  $('#kOpen').textContent=todays.filter(x=>x.status==='En curso').length;
-  $('#kIssues').textContent=todays.reduce((a,x)=>a+x.issues,0);
-
-  $('#dashRows').innerHTML=mapped.slice().reverse().map(x=>{
-    const duration=x.duration || fmtDuration(x.start,x.end);
-    return `<div class="dashrow">
-      <b>${x.name||''}</b> · ${x.zone||'Sin zona'} · ${x.status||''}<br>
-      <small>Inicio ${fmtTime(x.start)} · Fin ${x.end?fmtTime(x.end):'En curso'} · Duración ${duration}</small><br>
-      <small>${x.floors} pisos · ${x.issues} novedades${x.turno?' · '+x.turno:''}</small>
-    </div>`;
-  }).join('')||'<p>Sin datos</p>';
+    renderSupervisorDashboard();
   }finally{
     setLoading(false);
   }
@@ -795,3 +890,26 @@ $$('[data-go]').forEach(b=>b.onclick=()=>{
 });
 
 window.addEventListener('load',()=>show('login'));
+
+document.addEventListener('click',e=>{
+  if(e.target?.id==='btnApplyFilters') renderSupervisorDashboard();
+
+  if(e.target?.id==='btnClearFilters'){
+    $('#fZona').value='';
+    $('#fTurno').value='';
+    $('#fEstado').value='';
+    $('#fVigilante').value='';
+    const today=localDateKey(new Date());
+    $('#fDesde').value=today;
+    $('#fHasta').value=today;
+    renderSupervisorDashboard();
+  }
+
+  if(e.target?.id==='btnDashBack'){
+    if(String(state.user?.role||'').toLowerCase()==='supervisor'){
+      logoutToLogin();
+    }else{
+      show('home');
+    }
+  }
+});

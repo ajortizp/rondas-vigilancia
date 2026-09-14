@@ -90,3 +90,69 @@
 body.busy{overflow:hidden}
 body.busy .screen{pointer-events:none}
 @keyframes rvspin{to{transform:rotate(360deg)}}
+
+.supervisorFilters{
+  display:grid;
+  grid-template-columns:repeat(3,1fr);
+  gap:10px;
+  align-items:end;
+}
+.supervisorFilters label{
+  display:block;
+  font-size:12px;
+  color:#555;
+  margin-bottom:4px;
+}
+.supervisorFilters input,.supervisorFilters select{
+  width:100%;
+  box-sizing:border-box;
+  min-height:42px;
+  border:1px solid #ccc;
+  border-radius:10px;
+  padding:8px;
+  background:#fff;
+}
+.supervisorFilters .wide{grid-column:span 2}
+.kpis7{
+  grid-template-columns:repeat(7,1fr);
+  gap:8px;
+  margin:14px 0;
+}
+.kpis7>div{min-width:0;padding:12px 7px}
+.kpis7 strong{font-size:24px}
+.kpis7 span{font-size:11px}
+.dashboardGrid{
+  display:grid;
+  grid-template-columns:1.5fr 1fr;
+  gap:14px;
+}
+.dashrow{
+  border-bottom:1px solid #eee;
+  padding:12px 2px;
+}
+.rankrow{
+  display:flex;
+  gap:10px;
+  align-items:center;
+  border-bottom:1px solid #eee;
+  padding:10px 0;
+}
+.rankpos{
+  width:34px;
+  height:34px;
+  flex:0 0 34px;
+  border-radius:50%;
+  display:flex;
+  align-items:center;
+  justify-content:center;
+  font-weight:800;
+  background:#f0f0f0;
+}
+.rankbody{display:flex;flex-direction:column}
+.rankbody small{color:#666;margin-top:2px}
+@media(max-width:760px){
+  .supervisorFilters{grid-template-columns:1fr 1fr}
+  .supervisorFilters .wide{grid-column:span 2}
+  .kpis7{grid-template-columns:repeat(2,1fr)}
+  .dashboardGrid{grid-template-columns:1fr}
+}

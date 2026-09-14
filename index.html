@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
 <title>Rondas de Vigilancia</title>
 <link rel="manifest" href="manifest.json">
-<link rel="stylesheet" href="styles.css?v=7.2">
+<link rel="stylesheet" href="styles.css?v=8.0">
 <script src="https://unpkg.com/html5-qrcode@2.3.8/html5-qrcode.min.js"></script>
 </head>
 <body>
@@ -157,18 +157,47 @@
     </main>
   </section>
 
+  
   <section id="dashboard" class="screen">
-    <header><button class="back" data-go="home">‹</button><b>Dashboard</b></header>
+    <header>
+      <button class="back" id="btnDashBack">‹</button>
+      <div><b>Panel Supervisor</b><small id="dashUser"></small></div>
+    </header>
     <main>
-      <div class="kpis">
-        <div><strong id="kToday">0</strong><span>Rondas hoy</span></div>
+      <div class="supervisorFilters card">
+        <div><label>Desde</label><input type="date" id="fDesde"></div>
+        <div><label>Hasta</label><input type="date" id="fHasta"></div>
+        <div><label>Zona</label><select id="fZona"><option value="">Todas</option><option>Zona 1</option><option>Zona 2</option></select></div>
+        <div><label>Turno</label><select id="fTurno"><option value="">Todos</option><option>Mañana</option><option>Tarde</option><option>Noche</option><option>Día</option></select></div>
+        <div><label>Estado</label><select id="fEstado"><option value="">Todos</option><option>Finalizada</option><option>En curso</option><option>Interrumpida</option><option>No realizada</option></select></div>
+        <div class="wide"><label>Vigilante</label><select id="fVigilante"><option value="">Todos</option></select></div>
+        <button id="btnApplyFilters" class="primary">APLICAR FILTROS</button>
+        <button id="btnClearFilters" class="secondary">LIMPIAR</button>
+      </div>
+
+      <div class="kpis kpis7">
+        <div><strong id="kToday">0</strong><span>Rondas</span></div>
         <div><strong id="kDone">0</strong><span>Finalizadas</span></div>
         <div><strong id="kOpen">0</strong><span>En curso</span></div>
+        <div><strong id="kInterrupted">0</strong><span>Interrumpidas</span></div>
+        <div><strong id="kNotRun">0</strong><span>No realizadas</span></div>
         <div><strong id="kIssues">0</strong><span>Novedades</span></div>
+        <div><strong id="kAvg">00:00</strong><span>Duración prom.</span></div>
       </div>
-      <div class="card"><h3>Rondas registradas</h3><div id="dashRows"></div></div>
+
+      <div class="dashboardGrid">
+        <div class="card">
+          <h3>Actividad reciente</h3>
+          <div id="dashRows"></div>
+        </div>
+        <div class="card">
+          <h3>Ranking por vigilante</h3>
+          <div id="rankingRows"></div>
+        </div>
+      </div>
     </main>
   </section>
+
 </div>
 
 
@@ -180,8 +209,8 @@
   </div>
 </div>
 
-<script src="config.js?v=7.2"></script>
-<script src="sites.js?v=7.2"></script>
-<script src="app.js?v=7.2"></script>
+<script src="config.js?v=8.0"></script>
+<script src="sites.js?v=8.0"></script>
+<script src="app.js?v=8.0"></script>
 </body>
 </html>
