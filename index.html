@@ -5,10 +5,20 @@
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
 <title>Rondas de Vigilancia</title>
 <link rel="manifest" href="manifest.json">
-<link rel="stylesheet" href="styles.css?v=8.0">
+<link rel="stylesheet" href="styles.css?v=9.0">
 <script src="https://unpkg.com/html5-qrcode@2.3.8/html5-qrcode.min.js"></script>
 </head>
 <body>
+
+<div id="syncBar" class="syncBar online">
+  <div>
+    <span id="syncDot" class="syncDot"></span>
+    <b id="syncStatus">En línea</b>
+    <small id="syncDetail">Todo sincronizado</small>
+  </div>
+  <button id="btnSyncNow" type="button">Sincronizar</button>
+</div>
+
 <div id="app">
   <section id="login" class="screen hero active">
     <div class="overlay">
@@ -22,6 +32,7 @@
         <input id="pin" type="password" inputmode="numeric" maxlength="6" placeholder="••••">
         <button id="btnLogin" class="primary">Ingresar</button>
         <p class="hint">PIN: últimos 4 dígitos del RUT, sin verificador</p>
+<p id="offlineLoginHint" class="hint offlineHint" style="display:none">Sin conexión: solo podrán ingresar usuarios autenticados previamente en este teléfono.</p>
       </div>
     </div>
   </section>
@@ -209,8 +220,8 @@
   </div>
 </div>
 
-<script src="config.js?v=8.0"></script>
-<script src="sites.js?v=8.0"></script>
-<script src="app.js?v=8.2"></script>
+<script src="config.js?v=9.0"></script>
+<script src="sites.js?v=9.0"></script>
+<script src="app.js?v=9.0"></script>
 </body>
 </html>

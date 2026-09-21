@@ -100,15 +100,287 @@ function getRutPin(value){
   return clean.slice(0,-1).slice(-4);
 }
 
-async function api(action,payload={}){
+const OFFLINE_QUEUE_KEY='rv_offline_queue_v1';
+const ID_MAP_KEY='rv_id_map_v1';
+const DASH_CACHE_KEY='rv_dashboard_cache_v1';
+const AUTH_PREFIX='rv_auth_v1_';
+let syncInProgress=false;
+
+function readJson(key,fallback){
+  try{
+    const v=JSON.parse(localStorage.getItem(key)||'null');
+    return v ?? fallback;
+  }catch(e){return fallback}
+}
+function writeJson(key,value){
+  localStorage.setItem(key,JSON.stringify(value));
+}
+function getQueue(){return readJson(OFFLINE_QUEUE_KEY,[])}
+function saveQueue(q){writeJson(OFFLINE_QUEUE_KEY,q)}
+function getIdMap(){return readJson(ID_MAP_KEY,{})}
+function saveIdMap(m){writeJson(ID_MAP_KEY,m)}
+
+function queueableAction(action){
+  return ['start','saveFloor','finish','notRun','interrupt'].includes(action);
+}
+
+function makeQueueId(){
+  return 'Q-'+Date.now()+'-'+Math.random().toString(36).slice(2,8);
+}
+
+function enqueueAction(action,payload){
+  const q=getQueue();
+  q.push({
+    qid:makeQueueId(),
+    action,
+    payload,
+    createdAt:new Date().toISOString(),
+    attempts:0
+  });
+  saveQueue(q);
+  updateConnectivityUI();
+}
+
+function mappedId(id){
+  const map=getIdMap();
+  return map[id] || id;
+}
+
+function remapPayload(action,payload){
+  const p=JSON.parse(JSON.stringify(payload||{}));
+  if(action==='saveFloor' && p.round?.id) p.round.id=mappedId(p.round.id);
+  if(['finish','interrupt'].includes(action) && p.id) p.id=mappedId(p.id);
+  return p;
+}
+
+function replaceLocalRoundId(localId,serverId){
+  if(!localId || !serverId || localId===serverId) return;
+
+  const map=getIdMap();
+  map[localId]=serverId;
+  saveIdMap(map);
+
+  if(state.round?.id===localId){
+    state.round.id=serverId;
+    persistActive();
+  }
+
+  // Actualiza cualquier ronda activa guardada en este teléfono.
+  Object.keys(localStorage).forEach(k=>{
+    if(!k.startsWith('rv_active_')) return;
+    try{
+      const r=JSON.parse(localStorage.getItem(k)||'null');
+      if(r?.id===localId){
+        r.id=serverId;
+        localStorage.setItem(k,JSON.stringify(r));
+      }
+    }catch(e){}
+  });
+
+  // Reescribe acciones pendientes para que apunten al ID definitivo.
+  const q=getQueue().map(item=>{
+    item.payload=remapPayload(item.action,item.payload);
+    return item;
+  });
+  saveQueue(q);
+}
+
+async function fetchWithTimeout(url,options={},timeoutMs=5000){
+  const controller=new AbortController();
+  const t=setTimeout(()=>controller.abort(),timeoutMs);
+  try{
+    return await fetch(url,{...options,signal:controller.signal});
+  }finally{
+    clearTimeout(t);
+  }
+}
+
+async function apiDirect(action,payload={}){
   if(CONFIG.DEMO_MODE) return demoApi(action,payload);
-  const r=await fetch(CONFIG.API_URL,{
+
+  const r=await fetchWithTimeout(CONFIG.API_URL,{
     method:'POST',
     headers:{'Content-Type':'text/plain;charset=utf-8'},
     body:JSON.stringify({action,payload})
-  });
+  },5000);
+
+  if(!r.ok) throw new Error('HTTP '+r.status);
   return await r.json();
 }
+
+async function hashText(text){
+  if(!crypto?.subtle) return btoa(unescape(encodeURIComponent(String(text))));
+  const buf=await crypto.subtle.digest(
+    'SHA-256',
+    new TextEncoder().encode(String(text))
+  );
+  return [...new Uint8Array(buf)].map(b=>b.toString(16).padStart(2,'0')).join('');
+}
+
+async function cacheAuthenticatedUser(rut,pin,user){
+  const key=AUTH_PREFIX+normalizeRut(rut);
+  writeJson(key,{
+    user,
+    pinHash:await hashText(pin),
+    cachedAt:Date.now(),
+    expiresAt:Date.now()+(7*24*60*60*1000)
+  });
+}
+
+async function offlineLogin(rut,pin){
+  const cached=readJson(AUTH_PREFIX+normalizeRut(rut),null);
+  if(!cached) return {ok:false,error:'Sin conexión. Este usuario aún no ha iniciado sesión en este teléfono.'};
+  if(cached.expiresAt && Date.now()>cached.expiresAt)
+    return {ok:false,error:'La autorización offline venció. Conéctate a internet para validar nuevamente.'};
+  const pinHash=await hashText(pin);
+  if(pinHash!==cached.pinHash) return {ok:false,error:'PIN incorrecto'};
+  return {ok:true,user:cached.user,offline:true};
+}
+
+async function api(action,payload={}){
+  // Lecturas con fallback local.
+  if(action==='login'){
+    if(!navigator.onLine) return offlineLogin(payload.rut,payload.pin);
+    try{
+      const r=await apiDirect(action,payload);
+      if(r?.ok) await cacheAuthenticatedUser(payload.rut,payload.pin,r.user);
+      return r;
+    }catch(e){
+      return offlineLogin(payload.rut,payload.pin);
+    }
+  }
+
+  if(action==='resume'){
+    if(!navigator.onLine) return {ok:true,round:getActive(),offline:true};
+    try{
+      return await apiDirect(action,payload);
+    }catch(e){
+      return {ok:true,round:getActive(),offline:true};
+    }
+  }
+
+  if(action==='dashboard'){
+    if(!navigator.onLine){
+      const cached=readJson(DASH_CACHE_KEY,null);
+      return cached ? {...cached,offline:true} : {ok:false,error:'Sin conexión y sin datos de dashboard almacenados.'};
+    }
+    try{
+      const r=await apiDirect(action,payload);
+      if(r?.ok) writeJson(DASH_CACHE_KEY,r);
+      return r;
+    }catch(e){
+      const cached=readJson(DASH_CACHE_KEY,null);
+      return cached ? {...cached,offline:true} : {ok:false,error:'No fue posible cargar el dashboard.'};
+    }
+  }
+
+  // Escrituras: local-first. La interfaz continúa al instante y sincroniza detrás.
+  if(queueableAction(action)){
+    const localPayload=JSON.parse(JSON.stringify(payload||{}));
+    enqueueAction(action,localPayload);
+
+    // Intentar sincronizar inmediatamente, sin bloquear la experiencia.
+    setTimeout(()=>processQueue(),50);
+
+    if(action==='start'){
+      return {ok:true,queued:true,id:payload.id};
+    }
+    return {ok:true,queued:true};
+  }
+
+  return apiDirect(action,payload);
+}
+
+async function processQueue(){
+  if(syncInProgress || !navigator.onLine || CONFIG.DEMO_MODE) {
+    updateConnectivityUI();
+    return;
+  }
+
+  syncInProgress=true;
+  updateConnectivityUI(true);
+
+  try{
+    let q=getQueue();
+
+    while(q.length && navigator.onLine){
+      const item=q[0];
+      item.attempts=(item.attempts||0)+1;
+      saveQueue(q);
+
+      try{
+        const payload=remapPayload(item.action,item.payload);
+        const result=await apiDirect(item.action,payload);
+
+        if(!result?.ok){
+          // Errores de validación no deben repetirse infinitamente.
+          console.warn('Sincronización rechazada',item.action,result);
+          item.lastError=result?.error||'Error de backend';
+          saveQueue(q);
+          break;
+        }
+
+        if(item.action==='start' && result.id){
+          replaceLocalRoundId(item.payload?.id,result.id);
+        }
+
+        q=getQueue();
+        // Puede haberse reescrito durante el mapeo de ID.
+        q=q.filter(x=>x.qid!==item.qid);
+        saveQueue(q);
+
+      }catch(e){
+        console.warn('Sincronización pendiente',e);
+        break;
+      }
+    }
+  }finally{
+    syncInProgress=false;
+    updateConnectivityUI();
+  }
+}
+
+function updateConnectivityUI(forceSyncing=false){
+  const bar=$('#syncBar');
+  const status=$('#syncStatus');
+  const detail=$('#syncDetail');
+  const btn=$('#btnSyncNow');
+  const hint=$('#offlineLoginHint');
+  if(!bar) return;
+
+  const pending=getQueue().length;
+  const online=navigator.onLine;
+
+  bar.classList.toggle('offline',!online);
+  bar.classList.toggle('pending',online && pending>0);
+  bar.classList.toggle('online',online && pending===0 && !forceSyncing);
+
+  if(forceSyncing || syncInProgress){
+    status.textContent='Sincronizando';
+    detail.textContent=pending ? `${pending} registro${pending===1?'':'s'} pendiente${pending===1?'':'s'}` : 'Comprobando datos';
+    btn.style.display='none';
+  }else if(!online){
+    status.textContent='Sin conexión';
+    detail.textContent=pending ? `${pending} registro${pending===1?'':'s'} guardado${pending===1?'':'s'} en el teléfono` : 'Puedes continuar la ronda';
+    btn.style.display='none';
+  }else if(pending>0){
+    status.textContent='Pendiente de sincronizar';
+    detail.textContent=`${pending} registro${pending===1?'':'s'} pendiente${pending===1?'':'s'}`;
+    btn.style.display='inline-flex';
+  }else{
+    status.textContent='En línea';
+    detail.textContent='Todo sincronizado';
+    btn.style.display='none';
+  }
+
+  if(hint) hint.style.display=online?'none':'block';
+}
+
+window.addEventListener('online',()=>{
+  updateConnectivityUI();
+  processQueue();
+});
+window.addEventListener('offline',updateConnectivityUI);
 
 function demoDb(){
   return JSON.parse(localStorage.getItem('rv_demo')||'{"rounds":[]}');
@@ -200,7 +472,6 @@ async function submitReason(reason){
   const gps=await getGps();
 
   if(state.reasonMode==='notRun'){
-    return withLoading('Guardando registro...',async()=>{
     const result=await api('notRun',{
       user:state.user,
       zone:state.selectedZone,
@@ -215,15 +486,15 @@ async function submitReason(reason){
     }
 
     clearActive();
-    logoutToLogin('Registro guardado. La ronda quedó como No realizada.');
-    });
+    logoutToLogin(result?.queued
+      ? 'Registro guardado en el teléfono. Se sincronizará automáticamente.'
+      : 'Registro guardado. La ronda quedó como No realizada.');
     return;
   }
 
   if(state.reasonMode==='interrupt'){
     if(!state.round?.id) return alert('No hay una ronda activa.');
 
-    return withLoading('Interrumpiendo ronda...',async()=>{
     const result=await api('interrupt',{
       id:state.round.id,
       reason,
@@ -235,8 +506,9 @@ async function submitReason(reason){
     }
 
     clearActive();
-    logoutToLogin('Ronda interrumpida y registrada correctamente.');
-    });
+    logoutToLogin(result?.queued
+      ? 'Ronda interrumpida. Registro guardado y pendiente de sincronización.'
+      : 'Ronda interrumpida y registrada correctamente.');
   }
 }
 
@@ -312,6 +584,11 @@ rutInput.addEventListener('keydown',e=>{
 $('#pin').addEventListener('keydown',e=>{
   if(e.key==='Enter') $('#btnLogin').click();
 });
+
+if($('#btnSyncNow')){
+  $('#btnSyncNow').onclick=()=>processQueue();
+}
+
 
 $('#btnLogin').onclick=async()=>{
   $('#rut').value=formatRut($('#rut').value);
@@ -412,8 +689,7 @@ $('#btnConfirmOtherReason').onclick=()=>{
 $('#btnStart').onclick=async()=>{
   if(!state.selectedZone) return alert('Selecciona Zona 1 o Zona 2.');
 
-  return withLoading('Iniciando ronda...',async()=>{
-    state.gps=await getGps();
+  state.gps=await getGps();
     let id='R-'+Date.now();
     state.round={
     id,
@@ -440,7 +716,7 @@ $('#btnStart').onclick=async()=>{
   if(rs.id) state.round.id=rs.id;
   persistActive();
   show('scan');
-  });
+  updateConnectivityUI();
 };
 
 function parseCode(raw){
@@ -607,18 +883,20 @@ $('#btnCompleteFloor').onclick=async()=>{
     answers:state.loc.answers
   });
 
-  return withLoading('Guardando piso...',async()=>{
+  const lastVisit=state.round.visits[state.round.visits.length-1];
   const saveResult=await api('saveFloor',{
     round:state.round,
     loc:state.loc,
-    gps:await getGps()
+    gps:lastVisit?.gps||null
   });
+
   if(!saveResult?.ok){
     return alert(saveResult?.error || 'No fue posible guardar el piso.');
   }
+
   persistActive();
   showTransition();
-  });
+  updateConnectivityUI();
 };
 
 $('#btnFinishEarly').onclick=()=>{
@@ -691,25 +969,35 @@ $('#endPhoto').onchange=e=>
   $('#btnFinish').disabled=!e.target.files.length;
 
 $('#btnFinish').onclick=async()=>{
-  return withLoading('Finalizando ronda...',async()=>{
-  let patch={
+  const patch={
     end:now(),
     gpsEnd:await getGps(),
     status:'Finalizada',
     endPhotoName:$('#endPhoto').files[0]?.name||''
   };
+
   Object.assign(state.round,patch);
+
+  const localDuration=fmtDuration(state.round.start,patch.end);
+
   const rf=await api('finish',{
     id:state.round.id,
     end:patch.end,
     gpsEnd:patch.gpsEnd,
     endPhotoName:patch.endPhotoName
   });
+
   if(!rf?.ok) return alert(rf?.error || 'No fue posible finalizar la ronda.');
+
   clearActive();
-  const dur=rf?.duration ? `\nDuración: ${rf.duration}` : '';
-  logoutToLogin(`Ronda finalizada correctamente.${dur}`);
-  });
+
+  logoutToLogin(
+    rf?.queued
+      ? `Ronda finalizada. Duración: ${localDuration}\nRegistro guardado en el teléfono y pendiente de sincronización.`
+      : `Ronda finalizada correctamente.\nDuración: ${rf?.duration||localDuration}`
+  );
+
+  updateConnectivityUI();
 };
 
 $('#btnDashboard').onclick=()=>show('dashboard');
@@ -858,6 +1146,9 @@ async function renderDashboard(){
     if(!r?.ok) return alert(r?.error || 'No fue posible cargar el dashboard.');
 
     dashboardCache={rounds:r.rounds||[],novedades:r.novedades||[]};
+    if($('#dashUser') && r.offline){
+      $('#dashUser').textContent=(state.user?.name||'Supervisor')+' · Datos guardados sin conexión';
+    }
     const normalized=dashboardCache.rounds.map(normalizeBackendRound);
     populateVigilanteFilter(normalized);
 
@@ -905,4 +1196,24 @@ document.addEventListener('click',e=>{
       show('home');
     }
   }
+});
+
+
+/* =====================================================
+   PWA / OFFLINE
+===================================================== */
+if('serviceWorker' in navigator){
+  window.addEventListener('load',async()=>{
+    try{
+      const reg=await navigator.serviceWorker.register('./sw.js?v=9.0');
+      reg.update().catch(()=>{});
+    }catch(e){
+      console.warn('Service Worker no disponible',e);
+    }
+  });
+}
+
+window.addEventListener('load',()=>{
+  updateConnectivityUI();
+  if(navigator.onLine) setTimeout(()=>processQueue(),600);
 });
