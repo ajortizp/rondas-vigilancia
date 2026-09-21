@@ -202,7 +202,7 @@ async function apiDirect(action,payload={}){
     method:'POST',
     headers:{'Content-Type':'text/plain;charset=utf-8'},
     body:JSON.stringify({action,payload})
-  },5000);
+  },25000);
 
   if(!r.ok) throw new Error('HTTP '+r.status);
   return await r.json();
@@ -292,7 +292,7 @@ async function api(action,payload={}){
 }
 
 async function processQueue(){
-  if(syncInProgress || !navigator.onLine || CONFIG.DEMO_MODE) {
+  if(syncInProgress || !navigator.onLine || CONFIG.DEMO_MODE){
     updateConnectivityUI();
     return;
   }
@@ -306,17 +306,20 @@ async function processQueue(){
     while(q.length && navigator.onLine){
       const item=q[0];
       item.attempts=(item.attempts||0)+1;
+      item.lastAttemptAt=new Date().toISOString();
+      item.lastError='';
       saveQueue(q);
+      updateConnectivityUI(true);
 
       try{
         const payload=remapPayload(item.action,item.payload);
         const result=await apiDirect(item.action,payload);
 
-        if(!result?.ok){
-          // Errores de validación no deben repetirse infinitamente.
-          console.warn('Sincronización rechazada',item.action,result);
-          item.lastError=result?.error||'Error de backend';
+        // Solo retiramos de la cola con confirmación explícita del backend.
+        if(!result || result.ok!==true){
+          item.lastError=result?.error||'Backend sin confirmación';
           saveQueue(q);
+          scheduleSyncRetry();
           break;
         }
 
@@ -324,13 +327,16 @@ async function processQueue(){
           replaceLocalRoundId(item.payload?.id,result.id);
         }
 
-        q=getQueue();
-        // Puede haberse reescrito durante el mapeo de ID.
-        q=q.filter(x=>x.qid!==item.qid);
+        q=getQueue().filter(x=>x.qid!==item.qid);
         saveQueue(q);
+        updateConnectivityUI(true);
 
       }catch(e){
-        console.warn('Sincronización pendiente',e);
+        item.lastError=(e?.name==='AbortError')
+          ? 'Tiempo de espera agotado'
+          : (e?.message||'Error de conexión');
+        saveQueue(q);
+        scheduleSyncRetry();
         break;
       }
     }
@@ -338,6 +344,39 @@ async function processQueue(){
     syncInProgress=false;
     updateConnectivityUI();
   }
+}
+
+let syncRetryTimer=null;
+function scheduleSyncRetry(){
+  if(syncRetryTimer) clearTimeout(syncRetryTimer);
+  if(!navigator.onLine) return;
+  syncRetryTimer=setTimeout(()=>{
+    syncRetryTimer=null;
+    processQueue();
+  },15000);
+}
+
+function exportPendingBackup(){
+  const data={
+    exportedAt:new Date().toISOString(),
+    pending:getQueue(),
+    idMap:getIdMap(),
+    activeRound:getActive(),
+    user:state.user ? {
+      rut:state.user.rut||'',
+      name:state.user.name||''
+    } : null
+  };
+
+  const blob=new Blob([JSON.stringify(data,null,2)],{type:'application/json'});
+  const url=URL.createObjectURL(blob);
+  const a=document.createElement('a');
+  a.href=url;
+  a.download='respaldo_rondas_pendientes_'+new Date().toISOString().replace(/[:.]/g,'-')+'.json';
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  setTimeout(()=>URL.revokeObjectURL(url),1000);
 }
 
 function updateConnectivityUI(forceSyncing=false){
@@ -365,7 +404,9 @@ function updateConnectivityUI(forceSyncing=false){
     btn.style.display='none';
   }else if(pending>0){
     status.textContent='Pendiente de sincronizar';
-    detail.textContent=`${pending} registro${pending===1?'':'s'} pendiente${pending===1?'':'s'}`;
+    const first=getQueue()[0];
+    const err=first?.lastError ? ` · Último intento: ${first.lastError}` : '';
+    detail.textContent=`${pending} registro${pending===1?'':'s'} pendiente${pending===1?'':'s'}${err}`;
     btn.style.display='inline-flex';
   }else{
     status.textContent='En línea';
@@ -587,6 +628,10 @@ $('#pin').addEventListener('keydown',e=>{
 
 if($('#btnSyncNow')){
   $('#btnSyncNow').onclick=()=>processQueue();
+}
+
+if($('#btnBackupPending')){
+  $('#btnBackupPending').onclick=()=>exportPendingBackup();
 }
 
 
@@ -1217,3 +1262,11 @@ window.addEventListener('load',()=>{
   updateConnectivityUI();
   if(navigator.onLine) setTimeout(()=>processQueue(),600);
 });
+
+
+// Reintento de seguridad cada minuto mientras la aplicación esté abierta.
+setInterval(()=>{
+  if(navigator.onLine && getQueue().length && !syncInProgress){
+    processQueue();
+  }
+},60000);

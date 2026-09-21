@@ -226,3 +226,9 @@ body.busy .screen{pointer-events:none}
   background:#fff4df;
   color:#7a4e00;
 }
+
+.syncActions{display:flex;gap:6px;align-items:center}
+#btnBackupPending{
+  border:1px solid #777;background:#fff;color:#444;border-radius:10px;
+  min-height:34px;padding:5px 9px;font-weight:700;
+}

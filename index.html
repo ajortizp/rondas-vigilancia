@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
 <title>Rondas de Vigilancia</title>
 <link rel="manifest" href="manifest.json">
-<link rel="stylesheet" href="styles.css?v=9.0">
+<link rel="stylesheet" href="styles.css?v=9.1">
 <script src="https://unpkg.com/html5-qrcode@2.3.8/html5-qrcode.min.js"></script>
 </head>
 <body>
@@ -16,7 +16,7 @@
     <b id="syncStatus">En línea</b>
     <small id="syncDetail">Todo sincronizado</small>
   </div>
-  <button id="btnSyncNow" type="button">Sincronizar</button>
+  <div class="syncActions"><button id="btnBackupPending" type="button" title="Guardar copia de seguridad de los pendientes">Respaldo</button><button id="btnSyncNow" type="button">Sincronizar</button></div>
 </div>
 
 <div id="app">
@@ -220,8 +220,8 @@
   </div>
 </div>
 
-<script src="config.js?v=9.0"></script>
-<script src="sites.js?v=9.0"></script>
-<script src="app.js?v=9.0"></script>
+<script src="config.js?v=9.1"></script>
+<script src="sites.js?v=9.1"></script>
+<script src="app.js?v=9.1"></script>
 </body>
 </html>

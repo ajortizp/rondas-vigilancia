@@ -1,0 +1,19 @@
+V9.1 SYNCSAFE
+
+Cambios:
+- Timeout Apps Script: 25 segundos.
+- Un pendiente solo se elimina después de recibir {ok:true}.
+- Si falla una sincronización, el registro permanece local.
+- Reintento automático a los 15 segundos y cada 60 segundos mientras la app esté abierta.
+- La barra muestra el último error de sincronización.
+- Botón Respaldo: descarga un JSON con toda la cola pendiente antes de hacer pruebas.
+- No se modifica Apps Script ni Google Sheets.
+
+PRUEBA RECOMENDADA PARA EL TELEFONO QUE YA TIENE 4 PENDIENTES:
+1. NO borrar datos del navegador.
+2. Subir estos archivos a GitHub reemplazando V9.
+3. Abrir la misma URL normalmente.
+4. Antes de sincronizar, pulsar "Respaldo" y conservar el JSON.
+5. Con internet estable, pulsar "Sincronizar" una sola vez.
+6. Observar el contador y validar Google Sheets.
+7. No limpiar Safari hasta que el contador llegue a 0 y los registros estén confirmados en Sheets.

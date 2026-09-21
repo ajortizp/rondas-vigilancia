@@ -1,0 +1,21 @@
+V9 OFFLINE / LOCAL-FIRST
+
+Objetivo:
+- La ronda continúa aun sin cobertura.
+- Guardado de inicio, pisos, interrupciones y cierre en el teléfono.
+- Sincronización automática al recuperar conexión.
+- Login offline para usuarios que ya se autenticaron previamente en ese teléfono (vigencia 7 días).
+- Indicador visible: En línea / Sin conexión / Pendiente de sincronizar.
+- Botón "Sincronizar" cuando existan pendientes.
+- Dashboard con último dato almacenado si no hay red.
+- Service Worker para cargar la aplicación sin cobertura después de una primera carga online.
+
+IMPORTANTE PARA LA PRIMERA PRUEBA:
+1. Subir TODOS los archivos de esta versión a GitHub (index.html, app.js, styles.css, sw.js y conservar los demás).
+2. Abrir la app CON INTERNET una vez en cada teléfono para instalar/actualizar el cache.
+3. Cerrar y volver a abrir la página una vez con internet.
+4. Autenticar a los vigilantes al menos una vez con internet en el teléfono que usarán.
+5. Luego probar modo avión/sin cobertura.
+6. Al recuperar conexión, observar "Sincronizando" y luego "Todo sincronizado".
+
+No se modifica Apps Script ni Google Sheets en esta versión.

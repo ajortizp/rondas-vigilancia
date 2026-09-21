@@ -1,11 +1,11 @@
-const CACHE='rv-v9-0';
+const CACHE='rv-v9-1';
 const APP_SHELL=[
   './',
   './index.html',
-  './styles.css?v=9.0',
-  './config.js?v=9.0',
-  './sites.js?v=9.0',
-  './app.js?v=9.0',
+  './styles.css?v=9.1',
+  './config.js?v=9.1',
+  './sites.js?v=9.1',
+  './app.js?v=9.1',
   './manifest.json',
   './assets/metro-logo.png',
   './assets/building.jpg'
