@@ -291,6 +291,53 @@ async function api(action,payload={}){
   return apiDirect(action,payload);
 }
 
+
+function normalizeBackendError(result){
+  return String(result?.error||'').trim().toLowerCase();
+}
+
+function alreadyAppliedResult(item,result){
+  const err=normalizeBackendError(result);
+
+  // START: if backend says there is already an active round, the original
+  // start most likely arrived. Use the server round ID and continue.
+  if(item.action==='start' && result?.activeRound?.id){
+    return {
+      applied:true,
+      serverId:result.activeRound.id,
+      reason:'Ronda ya existente en servidor'
+    };
+  }
+
+  // FLOOR: this exact validation is positive evidence that the same floor
+  // was already persisted. It is safe to acknowledge the queued retry.
+  if(item.action==='saveFloor' &&
+     (err.includes('este piso ya fue registrado') ||
+      err.includes('piso ya fue registrado'))){
+    return {applied:true,reason:'Piso ya registrado en servidor'};
+  }
+
+  // FINISH: if a retry reaches a round already finalized, do not block
+  // subsequent queue entries.
+  if(item.action==='finish' &&
+     (err.includes('ya fue finalizada') ||
+      err.includes('ya está finalizada') ||
+      err.includes('ya esta finalizada') ||
+      err.includes('ronda finalizada'))){
+    return {applied:true,reason:'Ronda ya finalizada en servidor'};
+  }
+
+  // INTERRUPT: same principle only for explicit "already interrupted" replies.
+  if(item.action==='interrupt' &&
+     (err.includes('ya fue interrumpida') ||
+      err.includes('ya está interrumpida') ||
+      err.includes('ya esta interrumpida'))){
+    return {applied:true,reason:'Ronda ya interrumpida en servidor'};
+  }
+
+  return {applied:false};
+}
+
 async function processQueue(){
   if(syncInProgress || !navigator.onLine || CONFIG.DEMO_MODE){
     updateConnectivityUI();
@@ -315,18 +362,30 @@ async function processQueue(){
         const payload=remapPayload(item.action,item.payload);
         const result=await apiDirect(item.action,payload);
 
-        // Solo retiramos de la cola con confirmación explícita del backend.
+        // Confirmación normal o recuperación de una operación que ya había
+        // llegado al servidor pero cuya respuesta se perdió/agotó.
         if(!result || result.ok!==true){
-          item.lastError=result?.error||'Backend sin confirmación';
-          saveQueue(q);
-          scheduleSyncRetry();
-          break;
-        }
+          const recovered=alreadyAppliedResult(item,result);
 
-        if(item.action==='start' && result.id){
+          if(!recovered.applied){
+            item.lastError=result?.error||'Backend sin confirmación';
+            saveQueue(q);
+            scheduleSyncRetry();
+            break;
+          }
+
+          if(item.action==='start' && recovered.serverId){
+            replaceLocalRoundId(item.payload?.id,recovered.serverId);
+          }
+
+          item.recovered=true;
+          item.recoveredReason=recovered.reason;
+        }else if(item.action==='start' && result.id){
           replaceLocalRoundId(item.payload?.id,result.id);
         }
 
+        // Solo aquí se retira el pendiente: confirmación OK o evidencia
+        // explícita de que la operación ya existe en servidor.
         q=getQueue().filter(x=>x.qid!==item.qid);
         saveQueue(q);
         updateConnectivityUI(true);
@@ -358,6 +417,7 @@ function scheduleSyncRetry(){
 
 function exportPendingBackup(){
   const data={
+    version:'9.2-recovery',
     exportedAt:new Date().toISOString(),
     pending:getQueue(),
     idMap:getIdMap(),

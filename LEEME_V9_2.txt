@@ -1,0 +1,24 @@
+V9.2 RECOVERY
+
+Motivo:
+V9.1 conservaba correctamente un registro si Apps Script no confirmaba OK,
+pero el backend podía responder en un reintento "Este piso ya fue registrado".
+Eso significa que el primer envío sí llegó. V9.1 interpretaba esa respuesta
+como error y detenía toda la cola.
+
+V9.2:
+- Reconoce "piso ya registrado" como confirmación de que ese pendiente ya existe.
+- Reconoce una ronda activa devuelta por backend al reintentar START y adopta su ID.
+- Reconoce respuestas explícitas de ronda ya finalizada/interrumpida.
+- NO elimina otros errores: quedan respaldados y pendientes.
+- Conserva timeout 25 s, reintentos y botón Respaldo.
+- No cambia Google Sheets ni Apps Script.
+
+RECUPERACIÓN DEL TELÉFONO:
+1. No borrar datos del navegador.
+2. Subir V9.2 a GitHub reemplazando los archivos.
+3. Abrir la misma URL.
+4. Pulsar Respaldo ANTES de Sincronizar.
+5. Con buena conexión, pulsar Sincronizar una sola vez.
+6. Validar que el contador baje.
+7. Revisar Rondas y Detalle_Ronda antes de limpiar cualquier dato.
