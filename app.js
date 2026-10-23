@@ -306,22 +306,16 @@ function normalizeBackendError(result){
 function alreadyAppliedResult(item,result){
   const err=normalizeBackendError(result);
 
-  // START: if backend says there is already an active round, the original
-  // start most likely arrived. Use the server round ID and continue.
-if(item.action==='start' && result?.activeRound){
-
-  const serverId =
-    result.activeRound.id ||
-    result.activeRound.IDRonda;
-
-  if(serverId){
+  // START: el backend confirma la recuperacion solo si la ronda
+  // coincide en RUT, zona y fecha de inicio. Nunca aceptar cualquier
+  // activeRound: podria pertenecer a otra ronda del mismo vigilante.
+  if(item.action==='start' && result?.recovered===true && result?.id){
     return {
       applied:true,
-      serverId:serverId,
-      reason:'Ronda ya existente en servidor'
+      serverId:result.id,
+      reason:'Ronda verificada por el servidor'
     };
   }
-}
 
   // FLOOR: this exact validation is positive evidence that the same floor
   // was already persisted. It is safe to acknowledge the queued retry.
@@ -394,7 +388,13 @@ async function processQueue(){
 
           item.recovered=true;
           item.recoveredReason=recovered.reason;
-        }else if(item.action==='start' && result.id){
+        }else if(item.action==='start'){
+          if(!result.id){
+            item.lastError='El servidor no devolvió ID de ronda';
+            saveQueue(q);
+            scheduleSyncRetry();
+            break;
+          }
           replaceLocalRoundId(item.payload?.id,result.id);
         }
 
