@@ -308,13 +308,20 @@ function alreadyAppliedResult(item,result){
 
   // START: if backend says there is already an active round, the original
   // start most likely arrived. Use the server round ID and continue.
-  if(item.action==='start' && result?.activeRound?.id){
+if(item.action==='start' && result?.activeRound){
+
+  const serverId =
+    result.activeRound.id ||
+    result.activeRound.IDRonda;
+
+  if(serverId){
     return {
       applied:true,
-      serverId:result.activeRound.id,
+      serverId:serverId,
       reason:'Ronda ya existente en servidor'
     };
   }
+}
 
   // FLOOR: this exact validation is positive evidence that the same floor
   // was already persisted. It is safe to acknowledge the queued retry.
