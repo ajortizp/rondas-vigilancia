@@ -1,6 +1,13 @@
 const $=s=>document.querySelector(s);
 const $$=s=>[...document.querySelectorAll(s)];
 
+// Validar perfil de administrador
+function isAdmin(){
+  return String(state.user?.role || '')
+    .trim()
+    .toLowerCase() === 'administrador';
+}
+
 const params=new URLSearchParams(window.location.search);
 const DEVICE_ZONE=params.get('zona')==='1'?'Zona 1':params.get('zona')==='2'?'Zona 2':null;
 
@@ -730,13 +737,33 @@ $('#btnLogin').onclick=async()=>{
   state.gps=await getGps();
   $('#gpsStatus').textContent=state.gps?'Ubicación disponible':'Ubicación no disponible';
 
-  if(String(state.user?.role||'').toLowerCase()==='supervisor'){
-    if($('#dashUser')) $('#dashUser').textContent=state.user.name||'Supervisor';
-    show('dashboard');
-  }else{
-    syncHomeForActive();
-    show('home');
+// Determinar pantalla según perfil
+if(isAdmin()){
+
+  if($('#dashUser')){
+    $('#dashUser').textContent =
+      state.user.name || 'Administrador';
   }
+
+  if($('#btnDashboard')){
+    $('#btnDashboard').style.display = '';
+  }
+
+  show('dashboard');
+
+}else{
+
+  // Vigilantes, supervisores y guardias
+  // ingresan a realizar rondas
+
+  if($('#btnDashboard')){
+    $('#btnDashboard').style.display = 'none';
+  }
+
+  syncHomeForActive();
+  show('home');
+
+}
   });
 };
 
@@ -1105,7 +1132,17 @@ $('#btnFinish').onclick=async()=>{
   updateConnectivityUI();
 };
 
-$('#btnDashboard').onclick=()=>show('dashboard');
+// Acceso exclusivo al panel administrativo
+$('#btnDashboard').onclick=()=>{
+
+  if(!isAdmin()){
+    alert('No tienes permisos para acceder al panel de administración.');
+    return;
+  }
+
+  show('dashboard');
+
+};
 
 
 function fmtDuration(start,end){
@@ -1295,12 +1332,14 @@ document.addEventListener('click',e=>{
   }
 
   if(e.target?.id==='btnDashBack'){
-    if(String(state.user?.role||'').toLowerCase()==='supervisor'){
-      logoutToLogin();
-    }else{
-      show('home');
-    }
+
+  if(isAdmin()){
+    logoutToLogin();
+  }else{
+    show('home');
   }
+
+}
 });
 
 
