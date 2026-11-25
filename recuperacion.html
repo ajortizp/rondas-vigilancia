@@ -4,7 +4,8 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Recuperación de rondas V2</title>
+<title>Recuperación de rondas V3</title>
+
 <style>
 * {
   box-sizing: border-box;
@@ -34,6 +35,12 @@ button {
 .secondary {
   background: #344054;
 }
+.warning {
+  background: #a15c00;
+}
+button:disabled {
+  background: #b5b5b5;
+}
 pre {
   white-space: pre-wrap;
   overflow-wrap: anywhere;
@@ -47,15 +54,17 @@ pre {
 }
 </style>
 </head>
+
 <body>
 
 <div class="card">
 
-<h2>Recuperación de rondas V2</h2>
+<h2>Recuperación de rondas V3</h2>
 
 <p class="aviso">
-Herramienta de respaldo y diagnóstico.
-No sincroniza ni elimina registros.
+Intervención controlada.
+Los registros históricos se conservarán
+en un respaldo local independiente.
 </p>
 
 <button onclick="diagnosticar()">
@@ -66,6 +75,11 @@ No sincroniza ni elimina registros.
   2. Descargar respaldo completo
 </button>
 
+<button id="btnAislar" class="warning"
+        onclick="aislarRegistros()" disabled>
+  3. Aislar registros históricos
+</button>
+
 <pre id="resultado"></pre>
 
 </div>
@@ -74,32 +88,53 @@ No sincroniza ni elimina registros.
 
 const QUEUE_KEY = 'rv_offline_queue_v1';
 const MAP_KEY = 'rv_id_map_v1';
+const BACKUP_KEY = 'rv_recovery_backup_20261125_v3';
+
+let diagnostico = null;
+let descargaSolicitada = false;
 
 function obtenerDatos() {
 
-  const pendientes = JSON.parse(
-    localStorage.getItem(QUEUE_KEY) || '[]'
-  );
+  const raw = {};
 
-  const mapa = JSON.parse(
-    localStorage.getItem(MAP_KEY) || '{}'
-  );
+  raw[QUEUE_KEY] = localStorage.getItem(QUEUE_KEY);
+  raw[MAP_KEY] = localStorage.getItem(MAP_KEY);
 
   const activas = {};
 
   Object.keys(localStorage)
     .filter(k => k.startsWith('rv_active_'))
+    .sort()
     .forEach(k => {
-      activas[k] = JSON.parse(localStorage.getItem(k));
+      raw[k] = localStorage.getItem(k);
+      activas[k] = JSON.parse(raw[k]);
     });
 
   return {
-    version: 'recuperacion-v2',
+    version: 'recuperacion-v3',
     exportedAt: new Date().toISOString(),
-    pending: pendientes,
-    idMap: mapa,
-    activeRounds: activas
+    pending: JSON.parse(raw[QUEUE_KEY] || '[]'),
+    idMap: JSON.parse(raw[MAP_KEY] || '{}'),
+    activeRounds: activas,
+    rawStorage: raw
   };
+
+}
+
+function validar(datos) {
+
+  return (
+    Array.isArray(datos.pending) &&
+    datos.pending.length === 96 &&
+    Object.keys(datos.activeRounds).length === 2 &&
+    Object.keys(datos.idMap).length === 34 &&
+    datos.pending[0]?.action === 'start' &&
+    datos.pending[0]?.payload?.id === 'R-1793973767454' &&
+    Object.values(datos.activeRounds)
+      .some(r => r?.id === 'RV-20261019-001') &&
+    Object.values(datos.activeRounds)
+      .some(r => r?.id === 'RV-20261030-001')
+  );
 
 }
 
@@ -109,41 +144,31 @@ function diagnosticar() {
 
   try {
 
-    const datos = obtenerDatos();
+    diagnostico = obtenerDatos();
+    descargaSolicitada = false;
 
-    const lineas = [
-      'DIAGNÓSTICO V2',
+    document.getElementById('btnAislar').disabled = true;
+
+    const valido = validar(diagnostico);
+
+    salida.textContent = [
+      'DIAGNÓSTICO V3',
       '',
-      'Registros pendientes: ' + datos.pending.length,
-      'Rondas activas: ' + Object.keys(datos.activeRounds).length,
-      'Identificadores vinculados: ' + Object.keys(datos.idMap).length,
+      'Registros pendientes: ' + diagnostico.pending.length,
+      'Rondas activas: ' +
+        Object.keys(diagnostico.activeRounds).length,
+      'Identificadores vinculados: ' +
+        Object.keys(diagnostico.idMap).length,
       '',
-      'DETALLE DE RONDAS ACTIVAS',
-      ''
-    ];
-
-    Object.values(datos.activeRounds).forEach((r, i) => {
-
-      lineas.push(
-        'Ronda ' + (i + 1),
-        'Vigilante: ' + (r?.user?.name || 'No identificado'),
-        'ID: ' + (r?.id || 'Sin ID'),
-        'Zona: ' + (r?.zone || 'Sin zona'),
-        'Inicio: ' + (r?.start || 'Sin fecha'),
-        'Estado: ' + (r?.status || 'Sin estado'),
-        'Pisos: ' + (r?.visits || []).length,
-        '-------------------------'
-      );
-
-    });
-
-    lineas.push(
+      valido
+        ? 'Datos esperados identificados.'
+        : 'Datos diferentes. NO INTERVENIR.',
       '',
-      'Diagnóstico completado.',
+      'Respaldo histórico existente: ' +
+        (localStorage.getItem(BACKUP_KEY) ? 'SI' : 'NO'),
+      '',
       'No se modificaron registros.'
-    );
-
-    salida.textContent = lineas.join('\n');
+    ].join('\n');
 
   } catch (error) {
 
@@ -159,15 +184,21 @@ function descargarRespaldo() {
 
     const datos = obtenerDatos();
 
-    if (datos.pending.length !== 96) {
-      alert('La cantidad de pendientes cambió. Detener la intervención.');
+    if (!diagnostico || !validar(datos)) {
+      alert('Realiza primero el diagnóstico.');
       return;
     }
 
-    const contenido = JSON.stringify(datos, null, 2);
+    if (
+      JSON.stringify(datos.rawStorage) !==
+      JSON.stringify(diagnostico.rawStorage)
+    ) {
+      alert('Los datos cambiaron. Detener intervención.');
+      return;
+    }
 
     const blob = new Blob(
-      [contenido],
+      [JSON.stringify(datos, null, 2)],
       {type: 'application/json'}
     );
 
@@ -175,9 +206,7 @@ function descargarRespaldo() {
     const enlace = document.createElement('a');
 
     enlace.href = url;
-
-    enlace.download =
-      'respaldo_completo_rondas_' +
+    enlace.download = 'respaldo_rondas_v3_' +
       new Date().toISOString().replace(/[:.]/g, '-') +
       '.json';
 
@@ -187,11 +216,146 @@ function descargarRespaldo() {
 
     setTimeout(() => URL.revokeObjectURL(url), 1000);
 
-    alert('Descarga solicitada. Verifica el archivo en Descargas.');
+    descargaSolicitada = true;
+
+    document.getElementById('btnAislar').disabled = false;
+
+    alert(
+      'Descarga solicitada. Verifica el archivo antes de aislar.'
+    );
 
   } catch (error) {
 
-    alert('Error al generar respaldo: ' + error.message);
+    alert('Error de respaldo: ' + error.message);
+
+  }
+
+}
+
+function aislarRegistros() {
+
+  const salida = document.getElementById('resultado');
+
+  let datos;
+  let modificacionIniciada = false;
+
+  try {
+
+    if (!diagnostico || !descargaSolicitada) {
+      throw new Error('Falta diagnóstico o respaldo.');
+    }
+
+    if (navigator.onLine) {
+      throw new Error('Activa el modo avión antes de continuar.');
+    }
+
+    datos = obtenerDatos();
+
+    if (!validar(datos)) {
+      throw new Error('Los registros no coinciden.');
+    }
+
+    if (
+      JSON.stringify(datos.rawStorage) !==
+      JSON.stringify(diagnostico.rawStorage)
+    ) {
+      throw new Error('Los datos cambiaron.');
+    }
+
+    if (localStorage.getItem(BACKUP_KEY) !== null) {
+      throw new Error('Ya existe un respaldo histórico.');
+    }
+
+    const confirmacion = prompt(
+      'Confirma que el respaldo externo fue verificado. ' +
+      'Para aislar los registros escribe AISLAR 96'
+    );
+
+    if (confirmacion !== 'AISLAR 96') {
+      return;
+    }
+
+    const contenido = JSON.stringify(datos);
+
+    localStorage.setItem(BACKUP_KEY, contenido);
+
+    if (localStorage.getItem(BACKUP_KEY) !== contenido) {
+      throw new Error('No se pudo verificar el respaldo local.');
+    }
+
+    modificacionIniciada = true;
+
+    localStorage.setItem(QUEUE_KEY, '[]');
+
+    Object.keys(datos.activeRounds).forEach(k => {
+      localStorage.removeItem(k);
+    });
+
+    const verificacion = obtenerDatos();
+
+    if (
+      verificacion.pending.length !== 0 ||
+      Object.keys(verificacion.activeRounds).length !== 0 ||
+      localStorage.getItem(MAP_KEY) !== datos.rawStorage[MAP_KEY]
+    ) {
+      throw new Error('La verificación final no coincide.');
+    }
+
+    document.getElementById('btnAislar').disabled = true;
+
+    salida.textContent = [
+      'AISLAMIENTO COMPLETADO',
+      '',
+      'Registros históricos respaldados: 96',
+      'Rondas históricas respaldadas: 2',
+      'Identificadores conservados: 34',
+      '',
+      'Cola activa: 0',
+      'Rondas activas locales: 0',
+      '',
+      'Respaldo histórico local: VERIFICADO',
+      '',
+      'Google Sheets: SIN MODIFICACIONES',
+      '',
+      'No abrir todavía la aplicación principal.'
+    ].join('\n');
+
+  } catch (error) {
+
+    let restaurado = false;
+
+    if (modificacionIniciada && datos) {
+
+      try {
+
+        Object.entries(datos.rawStorage).forEach(([k, v]) => {
+          if (v === null) {
+            localStorage.removeItem(k);
+          } else {
+            localStorage.setItem(k, v);
+          }
+        });
+
+        restaurado = Object.entries(datos.rawStorage)
+          .every(([k, v]) => localStorage.getItem(k) === v);
+
+      } catch (restoreError) {
+
+        restaurado = false;
+
+      }
+
+    }
+
+    salida.textContent = [
+      'INTERVENCIÓN DETENIDA',
+      error.message,
+      modificacionIniciada
+        ? (restaurado
+            ? 'Datos originales restaurados.'
+            : 'Restauración no verificada. No abrir la app.')
+        : 'No se modificó la cola activa.'
+    ].join('\n');
 
   }
 
