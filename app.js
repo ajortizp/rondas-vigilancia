@@ -1310,7 +1310,7 @@ document.addEventListener('click',e=>{
 if('serviceWorker' in navigator){
   window.addEventListener('load',async()=>{
     try{
-      const reg=await navigator.serviceWorker.register('./sw.js?v=9.0');
+      const reg=await navigator.serviceWorker.register('./sw.js?v=10.0');
       reg.update().catch(()=>{});
     }catch(e){
       console.warn('Service Worker no disponible',e);
