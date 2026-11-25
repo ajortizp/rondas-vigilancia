@@ -1,89 +1,157 @@
-const CACHE='rv-v9-2-recovery';
+const CACHE='rv-v10-0-integridad';
+
 const APP_SHELL=[
   './',
   './index.html',
-  './styles.css?v=9.2',
-  './config.js?v=9.2',
-  './sites.js?v=9.2',
-  './app.js?v=9.2',
+  './styles.css?v=10.0',
+  './config.js?v=10.0',
+  './sites.js?v=10.0',
+  './app.js?v=10.0',
   './manifest.json',
   './assets/metro-logo.png',
   './assets/building.jpg'
 ];
 
-const QR_LIB='https://unpkg.com/html5-qrcode@2.3.8/html5-qrcode.min.js';
+const QR_LIB=
+  'https://unpkg.com/html5-qrcode@2.3.8/html5-qrcode.min.js';
 
 self.addEventListener('install',event=>{
   event.waitUntil((async()=>{
-    const cache=await caches.open(CACHE);
-    await cache.addAll(APP_SHELL);
 
-    // Intentamos dejar disponible el lector QR para uso sin cobertura.
+    const cache=await caches.open(CACHE);
+
+    await cache.addAll(
+      APP_SHELL.map(url=>
+        new Request(url,{cache:'reload'})
+      )
+    );
+
+    // Mantener disponible el lector QR sin conexión.
     try{
-      const req=new Request(QR_LIB,{mode:'no-cors'});
+      const req=new Request(QR_LIB,{
+        mode:'no-cors',
+        cache:'reload'
+      });
+
       const res=await fetch(req);
-      await cache.put(req,res);
-    }catch(e){}
+
+      if(res.ok || res.type==='opaque'){
+        await cache.put(req,res);
+      }
+
+    }catch(e){
+      console.warn('Lector QR no disponible en caché',e);
+    }
 
     await self.skipWaiting();
+
   })());
 });
 
 self.addEventListener('activate',event=>{
   event.waitUntil((async()=>{
+
     const keys=await caches.keys();
+
     await Promise.all(
-      keys.filter(k=>k!==CACHE).map(k=>caches.delete(k))
+      keys
+        .filter(k=>k.startsWith('rv-') && k!==CACHE)
+        .map(k=>caches.delete(k))
     );
+
     await self.clients.claim();
+
   })());
 });
 
 self.addEventListener('fetch',event=>{
+
   const req=event.request;
 
   if(req.method!=='GET') return;
 
   const url=new URL(req.url);
 
-  // Navegación: app shell primero cuando no hay red.
-  if(req.mode==='navigate'){
-    event.respondWith((async()=>{
-      try{
-        const fresh=await fetch(req);
-        const cache=await caches.open(CACHE);
-        cache.put('./index.html',fresh.clone()).catch(()=>{});
-        return fresh;
-      }catch(e){
-        return (
-          await caches.match('./index.html') ||
-          await caches.match('./')
-        );
-      }
-    })());
+  const sameOrigin=url.origin===self.location.origin;
+
+  const inScope=req.url.startsWith(
+    self.registration.scope
+  );
+
+  // No interceptar recursos ajenos a la aplicación.
+  if(!(sameOrigin && inScope) && req.url!==QR_LIB){
     return;
   }
 
-  // Recursos estáticos: cache first + actualización en segundo plano.
-  event.respondWith((async()=>{
-    const cached=await caches.match(req);
+  // Navegación: cargar la versión instalada rápidamente.
+  if(req.mode==='navigate'){
 
-    const networkPromise=fetch(req).then(async res=>{
-      if(res && (res.ok || res.type==='opaque')){
-        const cache=await caches.open(CACHE);
-        cache.put(req,res.clone()).catch(()=>{});
+    event.respondWith((async()=>{
+
+      const cache=await caches.open(CACHE);
+
+      const cached=await cache.match('./index.html');
+
+      if(cached) return cached;
+
+      try{
+
+        const fresh=await fetch(req);
+
+        if(fresh.ok){
+          await cache.put('./index.html',fresh.clone());
+        }
+
+        return fresh;
+
+      }catch(e){
+
+        return new Response(
+          'Aplicación no disponible sin conexión',
+          {
+            status:503,
+            headers:{
+              'Content-Type':'text/plain;charset=utf-8'
+            }
+          }
+        );
+
       }
-      return res;
-    }).catch(()=>null);
 
-    if(cached){
-      networkPromise.catch(()=>{});
-      return cached;
+    })());
+
+    return;
+
+  }
+
+  // Recursos estáticos: utilizar primero la caché.
+  event.respondWith((async()=>{
+
+    const cache=await caches.open(CACHE);
+
+    const cached=await cache.match(req);
+
+    if(cached) return cached;
+
+    try{
+
+      const res=await fetch(req);
+
+      if(res.ok || res.type==='opaque'){
+        await cache.put(req,res.clone());
+      }
+
+      return res;
+
+    }catch(e){
+
+      return new Response('',{
+        status:504,
+        statusText:'Offline'
+      });
+
     }
 
-    const network=await networkPromise;
-    if(network) return network;
-
-    return new Response('',{status:504,statusText:'Offline'});
   })());
+
 });
