@@ -76,6 +76,8 @@ async function withLoading(text,fn){
   setLoading(true,text);
   try{
     return await fn();
+  }catch(e){
+    alert('No se pudo completar la acción: '+e.message);
   }finally{
     setLoading(false);
   }
@@ -112,6 +114,26 @@ const ID_MAP_KEY='rv_id_map_v1';
 const DASH_CACHE_KEY='rv_dashboard_cache_v1';
 const AUTH_PREFIX='rv_auth_v1_';
 let syncInProgress=false;
+const CONFLICT_KEY='rv_sync_conflicts_v1';
+const ROUND_TTL=86400000;
+const conflicts=()=>readJson(CONFLICT_KEY,[]);
+function roundKey(item){
+  const p=item.payload||{};
+  return mappedId(p.round?.id||p.id||'');
+}
+function archiveConflict(item,error){
+  const a=conflicts();
+  if(!a.some(x=>x.qid===item.qid)) writeJson(CONFLICT_KEY,[...a,{...item,lastError:error,archivedAt:now()}]);
+  saveQueue(getQueue().filter(x=>x.qid!==item.qid));
+}
+function expired(r){const t=Date.parse(r?.start);return Number.isFinite(t)&&Date.now()-t>=ROUND_TTL;}
+function newRoundId(){return 'R-'+(globalThis.crypto?.randomUUID?.()||makeQueueId());}
+function guardRound(){
+  if(!state.round || expired(state.round)){
+    if(state.round){writeJson('rv_expired_'+state.round.id,state.round);clearActive();}
+    logoutToLogin('La ronda ya no está vigente. Los registros pendientes se conservan.');return false;
+  }return true;
+}
 
 function readJson(key,fallback){
   try{
@@ -299,124 +321,38 @@ async function api(action,payload={}){
 }
 
 
-function normalizeBackendError(result){
-  return String(result?.error||'').trim().toLowerCase();
-}
-
-function alreadyAppliedResult(item,result){
-  const err=normalizeBackendError(result);
-
-  // START: el backend confirma la recuperacion solo si la ronda
-  // coincide en RUT, zona y fecha de inicio. Nunca aceptar cualquier
-  // activeRound: podria pertenecer a otra ronda del mismo vigilante.
-  if(item.action==='start' && result?.recovered===true && result?.id){
-    return {
-      applied:true,
-      serverId:result.id,
-      reason:'Ronda verificada por el servidor'
-    };
-  }
-
-  // FLOOR: this exact validation is positive evidence that the same floor
-  // was already persisted. It is safe to acknowledge the queued retry.
-  if(item.action==='saveFloor' &&
-     (err.includes('este piso ya fue registrado') ||
-      err.includes('piso ya fue registrado'))){
-    return {applied:true,reason:'Piso ya registrado en servidor'};
-  }
-
-  // FINISH: if a retry reaches a round already finalized, do not block
-  // subsequent queue entries.
-  if(item.action==='finish' &&
-     (err.includes('ya fue finalizada') ||
-      err.includes('ya está finalizada') ||
-      err.includes('ya esta finalizada') ||
-      err.includes('ronda finalizada'))){
-    return {applied:true,reason:'Ronda ya finalizada en servidor'};
-  }
-
-  // INTERRUPT: same principle only for explicit "already interrupted" replies.
-  if(item.action==='interrupt' &&
-     (err.includes('ya fue interrumpida') ||
-      err.includes('ya está interrumpida') ||
-      err.includes('ya esta interrumpida'))){
-    return {applied:true,reason:'Ronda ya interrumpida en servidor'};
-  }
-
-  return {applied:false};
-}
-
+const permanentCodes=new Set(['ROUND_NOT_FOUND','ROUND_MISMATCH','ROUND_CLOSED_OR_EXPIRED','ROUND_START_EXPIRED','ROUND_ACTIVE_CONFLICT','ROUND_AMBIGUOUS','ROUND_ALREADY_CLOSED','ROUND_END_EXPIRED','INVALID_ROUND_END','INVALID_ROUND_START','INVALID_FLOOR','INVALID_FLOOR_TIME','FLOOR_CONFLICT']);
 async function processQueue(){
-  if(syncInProgress || !navigator.onLine || CONFIG.DEMO_MODE){
-    updateConnectivityUI();
-    return;
-  }
-
+  if(syncInProgress || !navigator.onLine || CONFIG.DEMO_MODE)return;
   syncInProgress=true;
-  updateConnectivityUI(true);
-
   try{
-    let q=getQueue();
-
-    while(q.length && navigator.onLine){
-      const item=q[0];
-      item.attempts=(item.attempts||0)+1;
-      item.lastAttemptAt=new Date().toISOString();
-      item.lastError='';
-      saveQueue(q);
-      updateConnectivityUI(true);
-
+    updateConnectivityUI(true);
+    while(navigator.onLine){
+      const item=getQueue()[0];if(!item)break;
+      const key=roundKey(item);
+      const blocked=key && conflicts().some(x=>roundKey(x)===key);
+      if(blocked){archiveConflict(item,'Ronda con conflicto previo');continue;}
+      const payload=remapPayload(item.action,item.payload);
       try{
-        const payload=remapPayload(item.action,item.payload);
+        if(item.action==='start') payload.clientRoundId=payload.clientRoundId||'';
+        if(item.action==='saveFloor') payload.eventAt=payload.eventAt||item.createdAt;
+        if(item.action==='interrupt') payload.end=payload.end||item.createdAt;
         const result=await apiDirect(item.action,payload);
-
-        // Confirmación normal o recuperación de una operación que ya había
-        // llegado al servidor pero cuya respuesta se perdió/agotó.
-        if(!result || result.ok!==true){
-          const recovered=alreadyAppliedResult(item,result);
-
-          if(!recovered.applied){
-            item.lastError=result?.error||'Backend sin confirmación';
-            saveQueue(q);
-            scheduleSyncRetry();
-            break;
-          }
-
-          if(item.action==='start' && recovered.serverId){
-            replaceLocalRoundId(item.payload?.id,recovered.serverId);
-          }
-
-          item.recovered=true;
-          item.recoveredReason=recovered.reason;
-        }else if(item.action==='start'){
-          if(!result.id){
-            item.lastError='El servidor no devolvió ID de ronda';
-            saveQueue(q);
-            scheduleSyncRetry();
-            break;
-          }
-          replaceLocalRoundId(item.payload?.id,result.id);
+        if(result?.ok===true && (item.action!=='start'||result.id)){
+          if(item.action==='start')replaceLocalRoundId(item.payload.id,result.id);
+          saveQueue(getQueue().filter(x=>x.qid!==item.qid));
+        }else if(permanentCodes.has(result?.code)||result?.error==='Existe una ronda diferente en curso'||result?.error==='Ronda no encontrada'){
+          archiveConflict(item,result.error||result.code);
+        }else{
+          throw new Error(result?.error||'Servidor sin confirmación');
         }
-
-        // Solo aquí se retira el pendiente: confirmación OK o evidencia
-        // explícita de que la operación ya existe en servidor.
-        q=getQueue().filter(x=>x.qid!==item.qid);
-        saveQueue(q);
-        updateConnectivityUI(true);
-
       }catch(e){
-        item.lastError=(e?.name==='AbortError')
-          ? 'Tiempo de espera agotado'
-          : (e?.message||'Error de conexión');
-        saveQueue(q);
-        scheduleSyncRetry();
-        break;
+        saveQueue(getQueue().map(x=>x.qid===item.qid?{...x,attempts:(x.attempts||0)+1,lastError:e.message,lastAttemptAt:now()}:x));
+        scheduleSyncRetry();break;
       }
+      updateConnectivityUI(true);
     }
-  }finally{
-    syncInProgress=false;
-    updateConnectivityUI();
-  }
+  }finally{syncInProgress=false;updateConnectivityUI();}
 }
 
 let syncRetryTimer=null;
@@ -431,9 +367,11 @@ function scheduleSyncRetry(){
 
 function exportPendingBackup(){
   const data={
-    version:'9.2-recovery',
+    version:'10.0-integridad',
     exportedAt:new Date().toISOString(),
     pending:getQueue(),
+    conflicts:conflicts(),
+    expiredRounds:Object.keys(localStorage).filter(k=>k.startsWith('rv_expired_')).map(k=>readJson(k,null)),
     idMap:getIdMap(),
     activeRound:getActive(),
     user:state.user ? {
@@ -484,7 +422,7 @@ function updateConnectivityUI(forceSyncing=false){
     btn.style.display='inline-flex';
   }else{
     status.textContent='En línea';
-    detail.textContent='Todo sincronizado';
+    detail.textContent=conflicts().length ? `${conflicts().length} registros respaldados para revisión` : 'Todo sincronizado';
     btn.style.display='none';
   }
 
@@ -510,7 +448,9 @@ function clearActive(){
 }
 function getActive(){
   if(!state.user) return null;
-  try{return JSON.parse(localStorage.getItem(activeKey())||'null')}catch(e){return null}
+  const r=readJson(activeKey(),null);
+  if(expired(r)){writeJson('rv_expired_'+r.id,r);clearActive();return null;}
+  return r;
 }
 function syncHomeForActive(){
   const active=getActive();
@@ -584,6 +524,7 @@ async function submitReason(reason){
   reason=(reason||'').trim();
   if(!reason) return alert('Selecciona o escribe un motivo.');
 
+  const eventAt=now();
   const gps=await getGps();
 
   if(state.reasonMode==='notRun'){
@@ -608,10 +549,11 @@ async function submitReason(reason){
   }
 
   if(state.reasonMode==='interrupt'){
-    if(!state.round?.id) return alert('No hay una ronda activa.');
+    if(!guardRound()) return;
 
     const result=await api('interrupt',{
       id:state.round.id,
+      end:eventAt,
       reason,
       gps
     });
@@ -654,7 +596,7 @@ async function getGps(){
       ? navigator.geolocation.getCurrentPosition(
           p=>res({lat:p.coords.latitude,lng:p.coords.longitude,acc:p.coords.accuracy}),
           ()=>res(null),
-          {enableHighAccuracy:true,timeout:8000}
+          {enableHighAccuracy:true,timeout:2000,maximumAge:15000}
         )
       : res(null)
   );
@@ -730,9 +672,11 @@ $('#btnLogin').onclick=async()=>{
     $$('.zoneBtn').forEach(x=>x.style.display='none');
   }
 
+  const gpsPromise=getGps();
   try{
+    const local=getActive();
     const rr=await api('resume',{rut:state.user.rut});
-    if(rr?.ok && rr.round){
+    if(rr?.ok && rr.round && !expired(rr.round) && !local && !getQueue().some(x=>['finish','interrupt'].includes(x.action)&&roundKey(x)===rr.round.id)){
       state.round=rr.round;
       state.selectedZone=rr.round.zone || DEVICE_ZONE;
       localStorage.setItem(activeKey(),JSON.stringify(rr.round));
@@ -741,7 +685,7 @@ $('#btnLogin').onclick=async()=>{
     console.warn('No se pudo consultar la ronda activa del backend',e);
   }
 
-  state.gps=await getGps();
+  state.gps=await gpsPromise;
   $('#gpsStatus').textContent=state.gps?'Ubicación disponible':'Ubicación no disponible';
 
 // Determinar pantalla según perfil
@@ -817,21 +761,22 @@ $$('.reasonBtn').forEach(btn=>{
       $('#otherReason').focus();
       return;
     }
-    submitReason(reason);
+    withLoading('Guardando registro...',()=>submitReason(reason));
   };
 });
 
 $('#btnConfirmOtherReason').onclick=()=>{
-  submitReason($('#otherReason').value);
+  withLoading('Guardando registro...',()=>submitReason($('#otherReason').value));
 };
 
-$('#btnStart').onclick=async()=>{
+$('#btnStart').onclick=()=>withLoading('Guardando registro...',async()=>{
   if(!state.selectedZone) return alert('Selecciona Zona 1 o Zona 2.');
 
   state.gps=await getGps();
-    let id='R-'+Date.now();
+    let id=newRoundId();
     state.round={
     id,
+    clientRoundId:id,
     user:state.user,
     zone:state.selectedZone,
     turno:state.user?.turnoHabitual||'',
@@ -856,7 +801,7 @@ $('#btnStart').onclick=async()=>{
   persistActive();
   show('scan');
   updateConnectivityUI();
-};
+});
 
 function parseCode(raw){
   raw=(raw||'').trim();
@@ -876,7 +821,7 @@ function locationAlreadyVisited(code){
 }
 
 function validateLocation(loc){
-  if(!state.round) return 'No hay una ronda activa.';
+  if(!state.round || expired(state.round)) return 'La ronda no está vigente.';
   if(loc.zone!==state.round.zone)
     return `Este QR pertenece a ${loc.zone}. La ronda activa corresponde a ${state.round.zone}.`;
   if(locationAlreadyVisited(loc.code))
@@ -1006,7 +951,8 @@ function suggestNextInZone(){
   return remainingZoneSites()[0] || null;
 }
 
-$('#btnCompleteFloor').onclick=async()=>{
+$('#btnCompleteFloor').onclick=()=>withLoading('Guardando registro...',async()=>{
+  if(!guardRound())return;
   let missing=state.loc.answers.filter(x=>!x.reviewed).length;
   if(missing && !confirm(`Quedan ${missing} puntos sin marcar. ¿Completar piso igualmente?`)) return;
 
@@ -1024,7 +970,8 @@ $('#btnCompleteFloor').onclick=async()=>{
 
   const lastVisit=state.round.visits[state.round.visits.length-1];
   const saveResult=await api('saveFloor',{
-    round:state.round,
+    round:{id:state.round.id,clientRoundId:state.round.clientRoundId,user:{rut:state.round.user.rut},zone:state.round.zone},
+    eventAt:lastVisit.at,
     loc:state.loc,
     gps:lastVisit?.gps||null
   });
@@ -1036,7 +983,7 @@ $('#btnCompleteFloor').onclick=async()=>{
   persistActive();
   showTransition();
   updateConnectivityUI();
-};
+});
 
 $('#btnFinishEarly').onclick=()=>{
   stopScanner();
@@ -1107,7 +1054,8 @@ function prepareFinish(){
 $('#endPhoto').onchange=e=>
   $('#btnFinish').disabled=!e.target.files.length;
 
-$('#btnFinish').onclick=async()=>{
+$('#btnFinish').onclick=()=>withLoading('Guardando registro...',async()=>{
+  if(!guardRound())return;
   const patch={
     end:now(),
     gpsEnd:await getGps(),
@@ -1137,7 +1085,7 @@ $('#btnFinish').onclick=async()=>{
   );
 
   updateConnectivityUI();
-};
+});
 
 // Acceso exclusivo al panel administrativo
 $('#btnDashboard').onclick=()=>{
@@ -1289,7 +1237,13 @@ function renderSupervisorDashboard(){
   }).join('')||'<p>Sin datos.</p>';
 }
 async function renderDashboard(){
-  setLoading(true,'Cargando dashboard...');
+  const cached=readJson(DASH_CACHE_KEY,null);
+  if(cached?.ok){
+    dashboardCache={rounds:cached.rounds||[],novedades:cached.novedades||[]};
+    populateVigilanteFilter(dashboardCache.rounds.map(normalizeBackendRound));
+    if(!$('#fDesde').value&&!$('#fHasta').value){$('#fDesde').value=localDateKey(new Date());$('#fHasta').value=$('#fDesde').value;}
+    renderSupervisorDashboard();
+  }else setLoading(true,'Cargando dashboard...');
   try{
     const r=await api('dashboard');
     if(!r?.ok) return alert(r?.error || 'No fue posible cargar el dashboard.');
@@ -1309,7 +1263,7 @@ async function renderDashboard(){
 
     renderSupervisorDashboard();
   }finally{
-    setLoading(false);
+    if(!cached?.ok)setLoading(false);
   }
 }
 
@@ -1376,3 +1330,5 @@ setInterval(()=>{
     processQueue();
   }
 },60000);
+// Verificación local de vigencia, sin eliminar la cola.
+setInterval(()=>{if(state.user && state.round?.status==='En curso' && expired(state.round) && !busyCount)guardRound();},15000);
